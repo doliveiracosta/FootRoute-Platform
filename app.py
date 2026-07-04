@@ -282,3 +282,27 @@ with tab_model:
         "O algoritmo exato usa programação dinâmica Held-Karp para determinar "
         "a sequência de visitação que minimiza a distância total percorrida."
     )
+
+
+st.markdown("---")
+st.markdown(
+    """
+    <div style="font-size: 0.95rem; line-height: 1.7;">
+        <strong>Desenvolvido por David de Oliveira Costa, Doutorando em Engenharia de Computação, 2026.</strong>
+        <br><br>
+        <a href="#" style="text-decoration: none; margin-right: 24px; color: #475569;">
+            <span style="display: inline-block; width: 18px; height: 18px; border-radius: 50%;
+                         background-color: #9ACD32; color: white; text-align: center;
+                         font-size: 10px; font-weight: bold; line-height: 18px; margin-right: 6px;">ID</span>
+            Perfil acadêmico
+        </a>
+        <a href="#" style="text-decoration: none; color: #475569;">
+            <span style="display: inline-block; width: 18px; height: 18px; border-radius: 2px;
+                         background-color: #0A66C2; color: white; text-align: center;
+                         font-size: 12px; font-weight: bold; line-height: 18px; margin-right: 6px;">in</span>
+            Perfil profissional
+        </a>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
