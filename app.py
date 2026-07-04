@@ -9,6 +9,11 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+
+ROOT = Path(__file__).resolve().parent
+DATA_DIR = ROOT / "data"
+
+
 @dataclass(frozen=True)
 class Place:
     name: str
@@ -259,7 +264,6 @@ def route_svg(clubs: list[Place], route: list[Place]) -> str:
     return "".join(svg_parts)
 
 
-DATA_DIR = ROOT / "data"
 LONG_TRIP_DEFAULT = 1500.0
 
 
