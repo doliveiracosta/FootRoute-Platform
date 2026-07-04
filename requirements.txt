@@ -1,6 +1,2 @@
-__pycache__/
-*.py[cod]
-.venv/
-.env
-.DS_Store
-.streamlit/secrets.toml
+streamlit>=1.58
+pandas>=3.0

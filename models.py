@@ -1,49 +1,40 @@
-# Modelo Matemático
+# Modelo matemático resumido
 
-O sistema representa os clubes como vértices de um grafo ponderado:
+Considere um grafo ponderado:
 
-\[
-G=(V,E)
-\]
+$$
+G=(V,A)
+$$
 
-em que:
+em que cada vértice representa uma equipe associada à sua cidade-sede ou à sua capital de referência, conforme a camada territorial selecionada pelo usuário.
 
-- \(V\) é o conjunto de clubes;
-- \(E\) é o conjunto de deslocamentos possíveis entre clubes;
-- \(d_{ij}\) é a distância entre o clube \(i\) e o clube \(j\).
+A variável de decisão é:
 
-Para uma sequência de visitação:
+$$
+x_{ij}=\begin{cases}
+1, & \text{se o deslocamento de } i \text{ para } j \text{ for escolhido}\\
+0, & \text{caso contrário}
+\end{cases}
+$$
 
-\[
-\pi=(\pi_0,\pi_1,\ldots,\pi_n)
-\]
+A função objetivo minimiza a distância total percorrida:
 
-a distância total é:
+$$
+\min Z = \sum_{i \in V}\sum_{j \in V, j \neq i} d_{ij}x_{ij}
+$$
 
-\[
-Z = \sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}}
-\]
+Para rota fechada, cada vértice deve ter exatamente uma entrada e uma saída:
 
-Quando a rota deve retornar ao ponto de origem:
+$$
+\sum_{j \in V, j \neq i}x_{ij}=1, \quad \forall i \in V
+$$
 
-\[
-Z_{\text{ciclo}} =
-\sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}} + d_{\pi_n,\pi_0}
-\]
+$$
+\sum_{i \in V, i \neq j}x_{ij}=1, \quad \forall j \in V
+$$
 
-O objetivo do modelo é:
+Para evitar subciclos, pode-se usar uma restrição de ordenação do tipo MTZ:
 
-\[
-\min Z
-\]
-
-ou, no caso de retorno:
-
-\[
-\min Z_{\text{ciclo}}
-\]
-
-O painel disponibiliza duas estratégias:
-
-- algoritmo exato Held-Karp, baseado em programação dinâmica;
-- heurística vizinho mais próximo com melhoria local 2-opt.
+$$
+u_i-u_j+|V|x_{ij}\leq |V|-1, \quad i \neq j,\ i,j \in V\setminus\{s\}
+$$

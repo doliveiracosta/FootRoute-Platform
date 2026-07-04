@@ -1,82 +1,96 @@
-from __future__ import annotations
+# FootRoute
 
-from footroute.models import Place
-from footroute.optimization import haversine_km
+FootRoute é uma plataforma em Streamlit para modelar, otimizar e visualizar rotas logísticas entre equipes de futebol. O painel usa uma formulação inspirada no Problema do Caixeiro Viajante, mas acrescenta uma camada interativa que conecta escolhas do usuário, grafo, variáveis de decisão, função objetivo e restrições matemáticas.
 
+## O que esta versão contém
 
-def nearest_capital_rows(clubs: list[Place], capitals: list[Place]) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for club in clubs:
-        capital = min(capitals, key=lambda item: haversine_km(club, item))
-        rows.append(
-            {
-                "clube": club.name,
-                "cidade_clube": club.city_label,
-                "regiao_clube": club.region,
-                "capital_referencia": capital.city,
-                "uf_capital": capital.state,
-                "regiao_capital": capital.region,
-                "distancia_capital_km": round(haversine_km(club, capital), 1),
-            }
-        )
-    return rows
+- seleção do clube de origem;
+- seleção das equipes a visitar;
+- opção de retornar ou não à origem;
+- algoritmo exato Held-Karp para instâncias pequenas;
+- heurística vizinho mais próximo + 2-opt para instâncias maiores;
+- grafo da rota recomendada;
+- tabela dos trechos da rota;
+- matriz de distâncias entre clubes;
+- download da rota em CSV;
+- aba de modelagem matemática interativa com equações renderizadas por `st.latex()`;
+- variáveis de decisão ativadas na solução;
+- função objetivo numérica formada pelos trechos selecionados;
+- classificação territorial das equipes: capital com múltiplas equipes, capital com uma equipe e equipes do interior.
 
+## Base de equipes incluída
 
-def route_svg(clubs: list[Place], route: list[Place]) -> str:
-    if not clubs:
-        return ""
-    width = 980
-    height = 620
-    margin = 50
-    min_lat = min(place.lat for place in clubs)
-    max_lat = max(place.lat for place in clubs)
-    min_lon = min(place.lon for place in clubs)
-    max_lon = max(place.lon for place in clubs)
+### Capitais com múltiplas equipes
 
-    def scale_x(lon: float) -> float:
-        if max_lon == min_lon:
-            return width / 2
-        return margin + (lon - min_lon) / (max_lon - min_lon) * (width - 2 * margin)
+- São Paulo/SP: Corinthians, Palmeiras e São Paulo;
+- Rio de Janeiro/RJ: Botafogo, Flamengo, Fluminense e Vasco da Gama;
+- Belo Horizonte/MG: Atlético-MG e Cruzeiro;
+- Curitiba/PR: Athletico-PR e Coritiba;
+- Porto Alegre/RS: Grêmio e Internacional;
+- Salvador/BA: Bahia e Vitória.
 
-    def scale_y(lat: float) -> float:
-        if max_lat == min_lat:
-            return height / 2
-        return height - margin - (lat - min_lat) / (max_lat - min_lat) * (height - 2 * margin)
+### Capital com apenas uma equipe
 
-    points = {place.name: (scale_x(place.lon), scale_y(place.lat)) for place in clubs}
-    svg_parts = [
-        f'<svg viewBox="0 0 {width} {height}" width="100%" height="620" xmlns="http://www.w3.org/2000/svg">',
-        '<rect x="0" y="0" width="100%" height="100%" rx="18" fill="#f8fafc"/>',
-        '<text x="28" y="36" font-size="22" font-family="Arial" font-weight="700" fill="#111827">Grafo da rota otimizada</text>',
-        '<text x="28" y="62" font-size="13" font-family="Arial" fill="#475569">Vértices = clubes/cidades-sede; arestas = deslocamentos selecionados</text>',
-    ]
+- Belém/PA: Remo.
 
-    for idx, (origin, destination) in enumerate(zip(route, route[1:]), start=1):
-        x1, y1 = points[origin.name]
-        x2, y2 = points[destination.name]
-        svg_parts.append(
-            f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-            'stroke="#2563eb" stroke-width="3" stroke-linecap="round" opacity="0.8"/>'
-        )
-        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-        svg_parts.append(
-            f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="11" fill="#1d4ed8" opacity="0.92"/>'
-            f'<text x="{mx:.1f}" y="{my + 4:.1f}" font-size="10" text-anchor="middle" font-family="Arial" fill="white">{idx}</text>'
-        )
+### Equipes do interior
 
-    route_names = {place.name for place in route}
-    for place in clubs:
-        x, y = points[place.name]
-        selected = place.name in route_names
-        radius = 8 if selected else 5
-        fill = "#ef4444" if selected else "#64748b"
-        svg_parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{fill}" stroke="white" stroke-width="2"/>')
-        svg_parts.append(
-            f'<text x="{x + 10:.1f}" y="{y - 8:.1f}" font-size="12" font-family="Arial" fill="#0f172a">{place.name}</text>'
-        )
-        svg_parts.append(
-            f'<text x="{x + 10:.1f}" y="{y + 7:.1f}" font-size="10" font-family="Arial" fill="#64748b">{place.city_label}</text>'
-        )
+- Bragança Paulista/SP: Red Bull Bragantino;
+- Chapecó/SC: Chapecoense;
+- Mirassol/SP: Mirassol;
+- Santos/SP: Santos.
 
-    svg_parts.append("</svg>")
-    return "".join(svg_parts)
+## Interpretação territorial
+
+A plataforma separa três entidades:
+
+1. **Clube**: a entidade esportiva.
+2. **Cidade-sede**: a cidade real onde a equipe está localizada.
+3. **Capital de referência**: capital estadual usada para análise agregada.
+
+Exemplo:
+
+```text
+Santos = clube
+Santos/SP = cidade-sede
+São Paulo/SP = capital de referência
+```
+
+Isso evita tratar equipes do interior como se estivessem fisicamente localizadas na capital.
+
+## Como executar localmente
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Depois, acesse:
+
+```text
+http://localhost:8501
+```
+
+## Estrutura
+
+```text
+footroute-platform/
+├── app.py
+├── requirements.txt
+├── README.md
+├── data/
+│   ├── clubes.csv
+│   └── capitais_brasil.csv
+├── docs/
+│   └── modelo_matematico.md
+└── src/
+    └── footroute/
+        ├── __init__.py
+        ├── models.py
+        ├── optimization.py
+        └── visualization.py
+```
+
+## Observação sobre distâncias
+
+As distâncias são estimadas pela fórmula de Haversine a partir das coordenadas geográficas das cidades-sede. Portanto, representam distância geodésica aproximada, não distância rodoviária, aérea operacional ou custo logístico real.
