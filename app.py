@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-from math import atan2
+import html
 
 import pandas as pd
-import pydeck as pdk
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 ROOT = Path(__file__).resolve().parent
@@ -101,145 +101,91 @@ def objective_terms(rows: list[dict[str, object]]) -> str:
     return "Z = " + " + ".join(terms)
 
 
-def build_route_map(clubs: list[Place], route: list[Place], total_distance_label: str) -> pdk.Deck:
-    route_names = {p.name for p in route}
+def brazil_map_svg(clubs: list[Place], route: list[Place], total_distance_label: str) -> str:
+    """Mapa esquemático do Brasil, sem mapa-múndi/base externa."""
+    width, height = 1120, 760
+    min_lon, max_lon = -74.5, -33.0
+    min_lat, max_lat = -34.5, 6.0
+    pad_l, pad_r, pad_t, pad_b = 70, 70, 95, 45
 
-    all_points = pd.DataFrame(
-        {
-            "name": [p.name for p in clubs],
-            "city": [getattr(p, "city_label", f"{p.city}/{p.state}") for p in clubs],
-            "lat": [p.lat for p in clubs],
-            "lon": [p.lon for p in clubs],
-            "in_route": [p.name in route_names for p in clubs],
-        }
-    )
+    def project(lon: float, lat: float) -> tuple[float, float]:
+        x = pad_l + (lon - min_lon) / (max_lon - min_lon) * (width - pad_l - pad_r)
+        y = pad_t + (max_lat - lat) / (max_lat - min_lat) * (height - pad_t - pad_b)
+        return x, y
 
-    route_points = all_points[all_points["in_route"]].copy()
-    other_points = all_points[~all_points["in_route"]].copy()
-
-    path_df = pd.DataFrame(
-        {
-            "path": [[[p.lon, p.lat] for p in route]],
-        }
-    )
-
-    # marcador de quilometragem dentro do mapa
-    label_df = pd.DataFrame(
-        [
-            {
-                "lon": -39.5,
-                "lat": 3.0,
-                "text": f"Distância total: {total_distance_label}",
-            }
-        ]
-    )
-
-    # círculos azuis numerados ao longo da rota, distribuídos com leve deslocamento lateral
-    step_records: list[dict[str, float | int | str]] = []
-    for i in range(len(route) - 1):
-        a = route[i]
-        b = route[i + 1]
-        lon1, lat1 = a.lon, a.lat
-        lon2, lat2 = b.lon, b.lat
-        dx, dy = lon2 - lon1, lat2 - lat1
-        angle = atan2(dy, dx)
-        nx, ny = -dy, dx
-        norm = max((nx * nx + ny * ny) ** 0.5, 1e-9)
-        nx /= norm
-        ny /= norm
-        t = 0.42 if i % 2 == 0 else 0.58
-        offset = 0.45 if i % 2 == 0 else -0.45
-        mlon = lon1 + dx * t + nx * offset
-        mlat = lat1 + dy * t + ny * offset
-        step_records.append({"lon": mlon, "lat": mlat, "step": str(i + 1)})
-
-    steps_df = pd.DataFrame(step_records)
-
-    layers = [
-        pdk.Layer(
-            "PathLayer",
-            data=path_df,
-            get_path="path",
-            get_color=[59, 130, 246],
-            width_scale=1,
-            width_min_pixels=3,
-            pickable=False,
-        ),
-        pdk.Layer(
-            "ScatterplotLayer",
-            data=other_points,
-            get_position='[lon, lat]',
-            get_radius=45000,
-            get_fill_color=[148, 163, 184, 160],
-            get_line_color=[255, 255, 255, 220],
-            line_width_min_pixels=1,
-            stroked=True,
-            filled=True,
-            pickable=True,
-        ),
-        pdk.Layer(
-            "ScatterplotLayer",
-            data=route_points,
-            get_position='[lon, lat]',
-            get_radius=62000,
-            get_fill_color=[0, 0, 0, 0],
-            get_line_color=[239, 68, 68, 255],
-            line_width_min_pixels=3,
-            stroked=True,
-            filled=False,
-            pickable=True,
-        ),
-        pdk.Layer(
-            "ScatterplotLayer",
-            data=steps_df,
-            get_position='[lon, lat]',
-            get_radius=82000,
-            get_fill_color=[37, 99, 235, 230],
-            get_line_color=[255, 255, 255, 255],
-            line_width_min_pixels=1,
-            stroked=True,
-            filled=True,
-            pickable=False,
-        ),
-        pdk.Layer(
-            "TextLayer",
-            data=steps_df,
-            get_position='[lon, lat]',
-            get_text='step',
-            get_size=14,
-            size_units='pixels',
-            get_color=[255, 255, 255, 255],
-            get_alignment_baseline='center',
-            get_text_anchor='middle',
-            pickable=False,
-        ),
-        pdk.Layer(
-            "TextLayer",
-            data=label_df,
-            get_position='[lon, lat]',
-            get_text='text',
-            get_size=18,
-            size_units='pixels',
-            get_color=[15, 23, 42, 255],
-            get_alignment_baseline='top',
-            get_text_anchor='start',
-            pickable=False,
-        ),
+    # Contorno aproximado, suficiente para usar como fundo visual do Brasil sem depender de tiles externos.
+    outline_lonlat = [
+        (-73.9, -7.5), (-72.2, -3.4), (-69.8, 0.5), (-64.4, 2.9),
+        (-59.8, 5.2), (-54.6, 4.9), (-50.4, 2.4), (-47.0, 1.0),
+        (-44.7, -1.3), (-41.0, -2.6), (-37.0, -5.0), (-34.8, -7.7),
+        (-35.2, -11.0), (-38.0, -13.2), (-38.8, -17.2), (-40.6, -19.8),
+        (-43.2, -22.7), (-45.8, -23.7), (-48.4, -25.5), (-48.8, -28.4),
+        (-51.1, -31.3), (-53.3, -33.7), (-56.5, -30.9), (-57.6, -28.7),
+        (-54.2, -25.6), (-54.8, -22.5), (-58.6, -20.7), (-60.8, -17.4),
+        (-63.6, -13.4), (-67.6, -10.8), (-70.2, -9.2), (-73.9, -7.5),
     ]
 
-    view_state = pdk.ViewState(latitude=-15.5, longitude=-52.5, zoom=3.25, pitch=0)
+    outline_points = " ".join(f"{project(lon, lat)[0]:.1f},{project(lon, lat)[1]:.1f}" for lon, lat in outline_lonlat)
 
-    tooltip = {
-        "html": "<b>{name}</b><br/>{city}",
-        "style": {"backgroundColor": "white", "color": "#111827"},
-    }
+    svg: list[str] = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 {width} {height}" '
+        'style="background:#f8fafc;border-radius:14px;font-family:Arial, Helvetica, sans-serif">',
+        f'<rect x="0" y="0" width="{width}" height="{height}" rx="14" fill="#f8fafc"/>',
+        '<text x="26" y="38" font-size="21" font-weight="700" fill="#0f172a">Rota sobre o mapa do Brasil</text>',
+        '<text x="26" y="64" font-size="13" fill="#334155">Mapa esquemático do Brasil; pontos = clubes/cidades-sede; linhas = deslocamentos selecionados</text>',
+        f'<polygon points="{outline_points}" fill="#e5e7eb" stroke="#94a3b8" stroke-width="2.2" opacity="0.96"/>',
+        '<rect x="800" y="22" width="285" height="58" rx="10" fill="#ffffff" opacity="0.94" stroke="#cbd5e1" stroke-width="1"/>',
+        '<text x="818" y="45" font-size="13" font-weight="700" fill="#334155">Distância total</text>',
+        f'<text x="818" y="68" font-size="23" font-weight="700" fill="#0f172a">{html.escape(total_distance_label)}</text>',
+    ]
 
-    return pdk.Deck(
-        layers=layers,
-        initial_view_state=view_state,
-        map_style="light",
-        tooltip=tooltip,
-    )
+    point_by_name = {place.name: project(place.lon, place.lat) for place in clubs}
+    route_names = {place.name for place in route}
+
+    # Linhas da rota.
+    if len(route) >= 2:
+        for i in range(len(route) - 1):
+            a, b = route[i], route[i + 1]
+            x1, y1 = point_by_name[a.name]
+            x2, y2 = point_by_name[b.name]
+            svg.append(
+                f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+                'stroke="#2563eb" stroke-width="3.4" stroke-linecap="round" opacity="0.92"/>'
+            )
+
+            dx, dy = x2 - x1, y2 - y1
+            seg_len = max((dx * dx + dy * dy) ** 0.5, 1.0)
+            nx, ny = -dy / seg_len, dx / seg_len
+            t = 0.42 if i % 2 == 0 else 0.58
+            offset = 13 if i % 2 == 0 else -13
+            mx = x1 + dx * t + nx * offset
+            my = y1 + dy * t + ny * offset
+            svg.append(
+                f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="9.5" fill="#2563eb" '
+                'stroke="#ffffff" stroke-width="1.5" opacity="0.96"/>'
+            )
+            svg.append(
+                f'<text x="{mx:.1f}" y="{my + 3.2:.1f}" text-anchor="middle" '
+                'font-size="9.5" font-weight="700" fill="#ffffff">'
+                f'{i + 1}</text>'
+            )
+
+    # Pontos. Clubes da rota ficam vazados em vermelho; demais pontos em cinza discreto.
+    for place in clubs:
+        x, y = point_by_name[place.name]
+        if place.name in route_names:
+            svg.append(
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="8.8" fill="none" '
+                'stroke="#ef4444" stroke-width="3.0"/>'
+            )
+        else:
+            svg.append(
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5.5" fill="#94a3b8" '
+                'stroke="#ffffff" stroke-width="1.2" opacity="0.75"/>'
+            )
+
+    svg.append("</svg>")
+    return "".join(svg)
 
 
 st.set_page_config(page_title="FootRoute", layout="wide")
@@ -250,7 +196,7 @@ club_names = list(clubs_by_name)
 
 st.title("FootRoute")
 st.caption("Painel de otimização de rotas logísticas entre clubes de futebol.")
-st.caption("VERSÃO ATIVA: rota em mapa do Brasil; apenas distância total; sem referencial e sem leitura operacional.")
+st.caption("VERSÃO ATIVA: mapa do Brasil apenas; sem mapa externo; sem aba Referenciais.")
 
 with st.sidebar:
     st.header("Configuração")
@@ -281,7 +227,7 @@ total_distance_label = format_km(metrics["total_km"])
 tab_route, tab_legs, tab_model = st.tabs(["Rota", "Trechos", "Modelo"])
 
 with tab_route:
-    st.pydeck_chart(build_route_map(clubs, route, total_distance_label), use_container_width=True, height=700)
+    components.html(brazil_map_svg(clubs, route, total_distance_label), height=780, scrolling=False)
     st.subheader("Sequência recomendada")
     st.write(visible_sequence(route, start))
     st.download_button(
