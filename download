@@ -1,1 +1,0 @@
-"""FootRoute package."""
