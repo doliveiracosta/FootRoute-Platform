@@ -101,7 +101,7 @@ def objective_terms(rows: list[dict[str, object]]) -> str:
     return "Z = " + " + ".join(terms)
 
 
-def brazil_map_svg(clubs: list[Place], route: list[Place], total_distance_label: str) -> str:
+def brazil_map_svg(clubs: list[Place], route: list[Place], start: Place, total_distance_label: str) -> str:
     """Mapa esquemático do Brasil, sem mapa-múndi/base externa."""
     width, height = 1120, 760
     min_lon, max_lon = -74.5, -33.0
@@ -170,10 +170,26 @@ def brazil_map_svg(clubs: list[Place], route: list[Place], total_distance_label:
                 f'{i + 1}</text>'
             )
 
-    # Pontos. Clubes da rota ficam vazados em vermelho; demais pontos em cinza discreto.
+    # Pontos. A origem recebe destaque visual próprio.
     for place in clubs:
         x, y = point_by_name[place.name]
-        if place.name in route_names:
+
+        if place.name == start.name:
+            # Origem: alvo duplo em verde, para diferenciar claramente dos demais pontos.
+            svg.append(
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="16" fill="#dcfce7" '
+                'stroke="#16a34a" stroke-width="3.0" opacity="0.98"/>'
+            )
+            svg.append(
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="6.5" fill="#16a34a" '
+                'stroke="#ffffff" stroke-width="1.8"/>'
+            )
+            svg.append(
+                f'<text x="{x + 18:.1f}" y="{y - 12:.1f}" font-size="13" '
+                'font-weight="700" fill="#166534">Origem</text>'
+            )
+
+        elif place.name in route_names:
             svg.append(
                 f'<circle cx="{x:.1f}" cy="{y:.1f}" r="8.8" fill="none" '
                 'stroke="#ef4444" stroke-width="3.0"/>'
@@ -196,7 +212,7 @@ club_names = list(clubs_by_name)
 
 st.title("FootRoute")
 st.caption("Painel de otimização de rotas logísticas entre clubes de futebol.")
-st.caption("VERSÃO ATIVA: mapa do Brasil apenas; sem mapa externo; sem aba Referenciais.")
+st.caption("VERSÃO ATIVA: mapa do Brasil apenas; sem mapa externo; origem destacada.")
 
 with st.sidebar:
     st.header("Configuração")
@@ -227,7 +243,7 @@ total_distance_label = format_km(metrics["total_km"])
 tab_route, tab_legs, tab_model = st.tabs(["Rota", "Trechos", "Modelo"])
 
 with tab_route:
-    components.html(brazil_map_svg(clubs, route, total_distance_label), height=780, scrolling=False)
+    components.html(brazil_map_svg(clubs, route, start, total_distance_label), height=780, scrolling=False)
     st.subheader("Sequência recomendada")
     st.write(visible_sequence(route, start))
     st.download_button(
