@@ -245,10 +245,18 @@ def route_svg(clubs: list[Place], route: list[Place], total_distance_label: str)
     for p in clubs:
         x, y = points[p.name]
         in_route = p.name in selected_names
-        radius = 9 if in_route else 6
-        fill = "#ef4444" if in_route else "#94a3b8"
-        stroke = "#ffffff"
-        stroke_w = 2.8 if in_route else 1.6
+
+        if in_route:
+            radius = 9
+            fill = "none"
+            stroke = "#ef4444"
+            stroke_w = 3.2
+        else:
+            radius = 6
+            fill = "#94a3b8"
+            stroke = "#ffffff"
+            stroke_w = 1.6
+
         svg.append(
             f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{fill}" '
             f'stroke="{stroke}" stroke-width="{stroke_w}"/>'
