@@ -206,7 +206,7 @@ def _callout_position(group: list[Place], base_points: dict[str, tuple[float, fl
     return tx, ty, cx, cy
 
 
-def route_svg(clubs: list[Place], route: list[Place]) -> str:
+def route_svg(clubs: list[Place], route: list[Place], total_distance_label: str) -> str:
     width, height = 1280, 780
     raw_points = _project_points(clubs, width, height)
     points = _jitter_city_points(raw_points, clubs)
@@ -219,9 +219,11 @@ def route_svg(clubs: list[Place], route: list[Place]) -> str:
         '<text x="24" y="36" font-size="20" font-weight="700" fill="#0f172a">Grafo da rota otimizada</text>',
         '<text x="24" y="62" font-size="13" fill="#334155">Vértices = clubes/cidades-sede</text>',
         '<text x="24" y="80" font-size="13" fill="#334155">Arestas = deslocamentos selecionados</text>',
+        '<rect x="950" y="18" width="300" height="54" rx="10" fill="#ffffff" opacity="0.92" stroke="#cbd5e1" stroke-width="1"/>',
+        '<text x="968" y="40" font-size="13" font-weight="700" fill="#334155">Distância total</text>',
+        f'<text x="968" y="62" font-size="22" font-weight="700" fill="#0f172a">{html.escape(total_distance_label)}</text>',
     ]
 
-    # Arestas da solução.
     if len(route) >= 2:
         for i in range(len(route) - 1):
             a = route[i]
@@ -240,7 +242,6 @@ def route_svg(clubs: list[Place], route: list[Place]) -> str:
                 f'{i + 1}</text>'
             )
 
-    # Nós.
     for p in clubs:
         x, y = points[p.name]
         in_route = p.name in selected_names
@@ -253,72 +254,8 @@ def route_svg(clubs: list[Place], route: list[Place]) -> str:
             f'stroke="{stroke}" stroke-width="{stroke_w}"/>'
         )
 
-    groups = _dense_groups(points, clubs, threshold=92.0)
-
-    # Rótulos simples para pontos isolados; caixas para regiões densas.
-    callout_order = 0
-    for group in sorted(groups, key=lambda g: (len(g) == 1, sum(points[p.name][1] for p in g) / len(g))):
-        if len(group) == 1:
-            p = group[0]
-            x, y = points[p.name]
-            city = html.escape(_city_key(p))
-            name = html.escape(p.name)
-            anchor = "start" if x < width * 0.72 else "end"
-            tx = x + 13 if anchor == "start" else x - 13
-            svg.append(
-                f'<text x="{tx:.1f}" y="{y - 7:.1f}" text-anchor="{anchor}" '
-                'font-size="12" font-weight="700" fill="#0f172a">'
-                f'{name}</text>'
-            )
-            svg.append(
-                f'<text x="{tx:.1f}" y="{y + 8:.1f}" text-anchor="{anchor}" '
-                'font-size="10" fill="#475569">'
-                f'{city}</text>'
-            )
-            continue
-
-        tx, ty, cx, cy = _callout_position(group, points, width, height, callout_order)
-        callout_order += 1
-
-        line_h = 17
-        box_w = 315
-        box_h = 34 + line_h * len(group)
-        svg.append(
-            f'<rect x="{tx:.1f}" y="{ty:.1f}" width="{box_w}" height="{box_h}" '
-            'rx="10" fill="#ffffff" opacity="0.88" stroke="#cbd5e1" stroke-width="1"/>'
-        )
-
-        # linha guia do centro do grupo para a caixa
-        svg.append(
-            f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{tx + 10:.1f}" y2="{ty + 16:.1f}" '
-            'stroke="#64748b" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.75"/>'
-        )
-
-        cities = sorted({_city_key(p) for p in group})
-        title = html.escape(" / ".join(cities))
-        svg.append(
-            f'<text x="{tx + 12:.1f}" y="{ty + 20:.1f}" font-size="12" '
-            'font-weight="700" fill="#334155">'
-            f'{title}</text>'
-        )
-
-        for idx, p in enumerate(sorted(group, key=lambda item: item.name)):
-            px, py = points[p.name]
-            marker_y = ty + 40 + idx * line_h
-            svg.append(
-                f'<line x1="{px:.1f}" y1="{py:.1f}" x2="{tx + 15:.1f}" y2="{marker_y - 4:.1f}" '
-                'stroke="#94a3b8" stroke-width="0.8" opacity="0.55"/>'
-            )
-            svg.append(f'<circle cx="{tx + 15:.1f}" cy="{marker_y - 4:.1f}" r="4" fill="#ef4444"/>')
-            svg.append(
-                f'<text x="{tx + 26:.1f}" y="{marker_y:.1f}" font-size="12" '
-                'font-weight="600" fill="#0f172a">'
-                f'{html.escape(p.name)}</text>'
-            )
-
-    svg.append("</svg>")
-    return "".join(svg)
-
+    svg.append('</svg>')
+    return ''.join(svg)
 
 st.set_page_config(page_title="FootRoute", layout="wide")
 
@@ -353,17 +290,12 @@ baseline = baseline_route(start, destinations, return_to_start)
 baseline_distance = route_distance(baseline)
 gain = 0.0 if baseline_distance == 0 else (baseline_distance - total_distance) / baseline_distance * 100
 
-metric_cols = st.columns(5)
-metric_cols[0].metric("Distância total", format_km(metrics["total_km"]))
-metric_cols[1].metric("Trechos", int(metrics["trechos"]))
-metric_cols[2].metric("Viagens longas", int(metrics["viagens_longas"]))
-metric_cols[3].metric("Inter-regionais", int(metrics["interregionais"]))
-metric_cols[4].metric("Ganho vs. ordem inicial", format_percent(gain))
+total_distance_label = format_km(metrics["total_km"])
 
 tab_route, tab_legs, tab_model = st.tabs(["Rota", "Trechos", "Modelo"])
 
 with tab_route:
-    components.html(route_svg(clubs, route), height=780, scrolling=False)
+    components.html(route_svg(clubs, route, total_distance_label), height=780, scrolling=False)
     st.subheader("Sequência recomendada")
     st.write(visible_sequence(route, start))
     st.download_button(
