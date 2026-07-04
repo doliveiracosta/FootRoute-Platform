@@ -134,7 +134,7 @@ def brazil_image_map_svg(clubs: list[Place], route: list[Place], start: Place, t
         f'<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 {width} {height}" '
         'style="background:#ffffff;border-radius:14px;font-family:Arial, Helvetica, sans-serif">',
         f'<rect x="0" y="0" width="{width}" height="{height}" rx="14" fill="#ffffff"/>',
-        '<text x="28" y="38" font-size="21" font-weight="700" fill="#0f172a">Rota </text>',
+        '<text x="28" y="38" font-size="21" font-weight="700" fill="#0f172a">Rota sobre o mapa do Brasil</text>',
         '<text x="28" y="63" font-size="13" fill="#475569">Pontos = clubes/cidades-sede; linhas = deslocamentos selecionados</text>',
         f'<image x="{image_x}" y="{image_y}" width="{image_w}" height="{image_h}" '
         f'href="data:image/png;base64,{BRAZIL_MAP_B64}" preserveAspectRatio="xMidYMid meet"/>',
@@ -212,6 +212,7 @@ club_names = list(clubs_by_name)
 
 st.title("FootRoute")
 st.caption("Painel de otimização de rotas logísticas entre clubes de futebol.")
+st.caption("VERSÃO ATIVA: mapa do Brasil em imagem, origem destacada e distância no mapa.")
 
 with st.sidebar:
     st.header("Configuração")
@@ -220,12 +221,10 @@ with st.sidebar:
     available = [name for name in club_names if name != start_name]
     selected_names = st.multiselect("Clubes a visitar", available, default=available)
     return_to_start = st.checkbox("Retornar ao clube de origem", value=True)
-    algorithm = st.radio(
-        "Algoritmo",
-        ["Exato (Held-Karp)", "Heurístico (vizinho mais próximo + 2-opt)"],
-        index=0,
-    )
-    long_trip_km = st.slider("Limiar de viagem longa (km)", 500, 3000, int(LONG_TRIP_DEFAULT), 100)
+
+# Configuração fixa para simplificar a interface.
+algorithm = "Exato (Held-Karp)"
+long_trip_km = LONG_TRIP_DEFAULT
 
 start = clubs_by_name[start_name]
 destinations = [clubs_by_name[name] for name in selected_names]
@@ -281,6 +280,6 @@ with tab_model:
     st.code(objective_terms(rows), language="text")
     st.metric("Valor de Z na solução atual", total_distance_label)
     st.write(
-        "O algoritmo exato usa programação dinâmica Held-Karp. "
-        "A heurística usa vizinho mais próximo seguido de melhoria local 2-opt."
+        "O algoritmo exato usa programação dinâmica Held-Karp para determinar "
+        "a sequência de visitação que minimiza a distância total percorrida."
     )
