@@ -236,3 +236,4 @@ with tab_model:
         "O algoritmo exato usa programação dinâmica Held-Karp. "
         "A heurística usa vizinho mais próximo seguido de melhoria local 2-opt."
     )
+
