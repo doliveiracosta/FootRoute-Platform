@@ -1,0 +1,14 @@
+id,nome,cidade,uf,regiao,latitude,longitude
+atletico_mg,Atlético-MG,Belo Horizonte,MG,Sudeste,-19.9167,-43.9345
+bahia,Bahia,Salvador,BA,Nordeste,-12.9777,-38.5016
+botafogo,Botafogo,Rio de Janeiro,RJ,Sudeste,-22.9068,-43.1729
+corinthians,Corinthians,São Paulo,SP,Sudeste,-23.5505,-46.6333
+cruzeiro,Cruzeiro,Belo Horizonte,MG,Sudeste,-19.9167,-43.9345
+flamengo,Flamengo,Rio de Janeiro,RJ,Sudeste,-22.9068,-43.1729
+fluminense,Fluminense,Rio de Janeiro,RJ,Sudeste,-22.9068,-43.1729
+gremio,Grêmio,Porto Alegre,RS,Sul,-30.0346,-51.2177
+internacional,Internacional,Porto Alegre,RS,Sul,-30.0346,-51.2177
+palmeiras,Palmeiras,São Paulo,SP,Sudeste,-23.5505,-46.6333
+santos,Santos,Santos,SP,Sudeste,-23.9608,-46.3336
+sao_paulo,São Paulo,São Paulo,SP,Sudeste,-23.5505,-46.6333
+vasco,Vasco,Rio de Janeiro,RJ,Sudeste,-22.9068,-43.1729
