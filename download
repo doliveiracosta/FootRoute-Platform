@@ -1,145 +1,39 @@
 from __future__ import annotations
 
-from .models import Place, haversine_km
+from dataclasses import dataclass
+from pathlib import Path
+
+import pandas as pd
 
 
-def route_distance(route: list[Place]) -> float:
-    return sum(haversine_km(a, b) for a, b in zip(route, route[1:]))
+@dataclass(frozen=True)
+class Place:
+    name: str
+    city: str
+    state: str
+    region: str
+    lat: float
+    lon: float
+
+    @property
+    def city_label(self) -> str:
+        return f"{self.city}/{self.state}"
 
 
-def held_karp(start: Place, destinations: list[Place], return_to_start: bool) -> tuple[list[Place], float]:
-    """Resolve o TSP por programação dinâmica.
-
-    Adequado para o recorte atual, com 13 clubes. Para instâncias maiores, use
-    a heurística disponível em `heuristic_route`.
-    """
-    if not destinations:
-        route = [start, start] if return_to_start else [start]
-        return route, 0.0
-
-    n = len(destinations)
-    dp: dict[tuple[int, int], tuple[float, int | None]] = {}
-
-    for j, destination in enumerate(destinations):
-        dp[(1 << j, j)] = (haversine_km(start, destination), None)
-
-    for mask in range(1, 1 << n):
-        for j in range(n):
-            if not mask & (1 << j) or (mask, j) not in dp:
-                continue
-            current_cost, _ = dp[(mask, j)]
-            for k in range(n):
-                if mask & (1 << k):
-                    continue
-                new_mask = mask | (1 << k)
-                new_cost = current_cost + haversine_km(destinations[j], destinations[k])
-                previous = dp.get((new_mask, k))
-                if previous is None or new_cost < previous[0]:
-                    dp[(new_mask, k)] = (new_cost, j)
-
-    full_mask = (1 << n) - 1
-    best_last = 0
-    best_cost = float("inf")
-
-    for j in range(n):
-        cost, _ = dp[(full_mask, j)]
-        if return_to_start:
-            cost += haversine_km(destinations[j], start)
-        if cost < best_cost:
-            best_cost = cost
-            best_last = j
-
-    ordered: list[Place] = []
-    mask = full_mask
-    last: int | None = best_last
-    while last is not None:
-        ordered.append(destinations[last])
-        _, previous = dp[(mask, last)]
-        mask ^= 1 << last
-        last = previous
-
-    route = [start] + list(reversed(ordered))
-    if return_to_start:
-        route.append(start)
-    return route, best_cost
-
-
-def nearest_neighbor(start: Place, destinations: list[Place], return_to_start: bool) -> list[Place]:
-    unvisited = destinations[:]
-    route = [start]
-    current = start
-
-    while unvisited:
-        next_place = min(unvisited, key=lambda place: haversine_km(current, place))
-        route.append(next_place)
-        unvisited.remove(next_place)
-        current = next_place
-
-    if return_to_start:
-        route.append(start)
-    return route
-
-
-def two_opt(route: list[Place], fixed_cycle: bool) -> list[Place]:
-    best = route[:]
-    improved = True
-    start_index = 1
-    end_limit = len(best) - 1 if fixed_cycle else len(best)
-
-    while improved:
-        improved = False
-        for i in range(start_index, end_limit - 1):
-            for k in range(i + 1, end_limit):
-                candidate = best[:i] + best[i : k + 1][::-1] + best[k + 1 :]
-                if route_distance(candidate) + 1e-9 < route_distance(best):
-                    best = candidate
-                    improved = True
-    return best
-
-
-def heuristic_route(start: Place, destinations: list[Place], return_to_start: bool) -> tuple[list[Place], float]:
-    route = nearest_neighbor(start, destinations, return_to_start)
-    optimized = two_opt(route, fixed_cycle=return_to_start)
-    return optimized, route_distance(optimized)
-
-
-def route_rows(route: list[Place], long_trip_km: float) -> list[dict[str, object]]:
-    rows = []
-    for idx, (origin, destination) in enumerate(zip(route, route[1:]), start=1):
-        distance = haversine_km(origin, destination)
-        rows.append(
-            {
-                "ordem": idx,
-                "origem": origin.name,
-                "destino": destination.name,
-                "cidade_origem": origin.city_label,
-                "cidade_destino": destination.city_label,
-                "regiao_origem": origin.region,
-                "regiao_destino": destination.region,
-                "distancia_km": round(distance, 1),
-                "interregional": origin.region != destination.region,
-                "viagem_longa": distance >= long_trip_km,
-            }
+def load_places(path: Path) -> list[Place]:
+    frame = pd.read_csv(path)
+    required = {"name", "city", "state", "region", "lat", "lon"}
+    missing = required.difference(frame.columns)
+    if missing:
+        raise ValueError(f"Arquivo {path} sem coluna(s): {', '.join(sorted(missing))}")
+    return [
+        Place(
+            name=str(row["name"]),
+            city=str(row["city"]),
+            state=str(row["state"]),
+            region=str(row["region"]),
+            lat=float(row["lat"]),
+            lon=float(row["lon"]),
         )
-    return rows
-
-
-def summary_metrics(rows: list[dict[str, object]]) -> dict[str, float]:
-    distances = [float(row["distancia_km"]) for row in rows]
-    return {
-        "total_km": sum(distances),
-        "maior_trecho_km": max(distances, default=0.0),
-        "trechos": float(len(rows)),
-        "viagens_longas": float(sum(1 for row in rows if row["viagem_longa"])),
-        "interregionais": float(sum(1 for row in rows if row["interregional"])),
-    }
-
-
-def distance_matrix(places: list[Place]) -> list[dict[str, object]]:
-    rows = []
-    for origin in places:
-        row: dict[str, object] = {"clube": origin.name}
-        for destination in places:
-            row[destination.name] = round(haversine_km(origin, destination), 1)
-        rows.append(row)
-    return rows
+        for _, row in frame.iterrows()
+    ]
