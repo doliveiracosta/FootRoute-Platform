@@ -1,226 +1,113 @@
 from __future__ import annotations
 
-from pathlib import Path
-import sys
+from math import sqrt
+from typing import Iterable
 
-import pandas as pd
-import streamlit as st
-
-
-ROOT = Path(__file__).resolve().parent
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from footroute.models import Place, load_places  # noqa: E402
-from footroute.optimization import (  # noqa: E402
-    distance_matrix,
-    held_karp,
-    heuristic_route,
-    route_distance,
-    route_rows,
-    summary_metrics,
-)
-from footroute.visualization import nearest_capital_rows, route_svg  # noqa: E402
+from .models import Place, haversine_km
 
 
-DATA_DIR = ROOT / "data"
-LONG_TRIP_DEFAULT = 1500.0
+REGION_COLORS = {
+    "Norte": "#2ca25f",
+    "Nordeste": "#f28e2b",
+    "Centro-Oeste": "#756bb1",
+    "Sudeste": "#4e79a7",
+    "Sul": "#e15759",
+}
 
 
-@st.cache_data
-def load_data() -> tuple[list[Place], list[Place]]:
-    clubs = load_places(DATA_DIR / "clubes_13.csv")
-    capitals = load_places(DATA_DIR / "capitais_brasil.csv")
-    return clubs, capitals
-
-
-def format_km(value: float) -> str:
-    return f"{value:,.1f} km".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def format_percent(value: float) -> str:
-    return f"{value:.1f}%".replace(".", ",")
-
-
-def bool_label(value: bool) -> str:
-    return "Sim" if value else "Não"
-
-
-def display_rows(rows: list[dict[str, object]]) -> pd.DataFrame:
-    frame = pd.DataFrame(rows)
-    if frame.empty:
-        return frame
-    frame = frame.rename(
-        columns={
-            "ordem": "Ordem",
-            "origem": "Origem",
-            "destino": "Destino",
-            "cidade_origem": "Cidade origem",
-            "cidade_destino": "Cidade destino",
-            "regiao_origem": "Região origem",
-            "regiao_destino": "Região destino",
-            "distancia_km": "Distância (km)",
-            "interregional": "Inter-regional",
-            "viagem_longa": "Viagem longa",
-        }
+def svg_escape(value: object) -> str:
+    text = str(value)
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
     )
-    frame["Inter-regional"] = frame["Inter-regional"].map(bool_label)
-    frame["Viagem longa"] = frame["Viagem longa"].map(bool_label)
-    return frame
 
 
-def baseline_route(start: Place, destinations: list[Place], return_to_start: bool) -> list[Place]:
-    route = [start] + destinations
-    if return_to_start:
-        route.append(start)
-    return route
+def project_points(places: Iterable[Place], width: int, height: int, margin: int) -> dict[str, tuple[float, float]]:
+    place_list = list(places)
+    min_lat = min(place.lat for place in place_list)
+    max_lat = max(place.lat for place in place_list)
+    min_lon = min(place.lon for place in place_list)
+    max_lon = max(place.lon for place in place_list)
+
+    positions = {}
+    for place in place_list:
+        x = margin + (place.lon - min_lon) / (max_lon - min_lon) * (width - 2 * margin)
+        y = margin + (max_lat - place.lat) / (max_lat - min_lat) * (height - 2 * margin)
+        positions[place.id] = (x, y)
+    return positions
 
 
-def solve_route(
-    algorithm: str,
-    start: Place,
-    destinations: list[Place],
-    return_to_start: bool,
-) -> tuple[list[Place], float]:
-    if algorithm.startswith("Exato"):
-        return held_karp(start, destinations, return_to_start)
-    return heuristic_route(start, destinations, return_to_start)
+def route_svg(all_clubs: list[Place], route: list[Place]) -> str:
+    width, height, margin = 1040, 660, 92
+    positions = project_points(all_clubs, width, height, margin)
+    route_ids = {place.id for place in route}
 
+    lines = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        "<defs>",
+        '<marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">',
+        '<path d="M0,0 L0,6 L9,3 z" fill="#111827" opacity="0.86" />',
+        "</marker>",
+        "</defs>",
+        '<rect width="100%" height="100%" fill="#fbfbf8" />',
+        '<text x="36" y="42" font-family="Arial" font-size="22" font-weight="700" fill="#111827">Rota otimizada</text>',
+        '<text x="36" y="68" font-family="Arial" font-size="13" fill="#4b5563">Arestas direcionadas indicam a ordem operacional do percurso.</text>',
+    ]
 
-st.set_page_config(page_title="FootRoute", layout="wide")
-
-clubs, capitals = load_data()
-clubs_by_name = {club.name: club for club in clubs}
-club_names = list(clubs_by_name)
-
-st.title("FootRoute")
-st.caption("Painel de otimização de rotas logísticas entre clubes de futebol.")
-
-with st.sidebar:
-    st.header("Configuração")
-    start_name = st.selectbox("Clube de origem", club_names, index=club_names.index("Flamengo"))
-    available = [name for name in club_names if name != start_name]
-    selected_names = st.multiselect("Clubes a visitar", available, default=available)
-    return_to_start = st.checkbox("Retornar ao clube de origem", value=True)
-    algorithm = st.radio(
-        "Algoritmo",
-        ["Exato (Held-Karp)", "Heurístico (vizinho mais próximo + 2-opt)"],
-        index=0,
-    )
-    long_trip_km = st.slider("Limiar de viagem longa (km)", 500, 3000, int(LONG_TRIP_DEFAULT), 100)
-
-start = clubs_by_name[start_name]
-destinations = [clubs_by_name[name] for name in selected_names]
-route, total_distance = solve_route(algorithm, start, destinations, return_to_start)
-rows = route_rows(route, long_trip_km=float(long_trip_km))
-metrics = summary_metrics(rows)
-
-baseline = baseline_route(start, destinations, return_to_start)
-baseline_distance = route_distance(baseline)
-gain = 0.0 if baseline_distance == 0 else (baseline_distance - total_distance) / baseline_distance * 100
-
-metric_cols = st.columns(5)
-metric_cols[0].metric("Distância total", format_km(metrics["total_km"]))
-metric_cols[1].metric("Trechos", int(metrics["trechos"]))
-metric_cols[2].metric("Viagens longas", int(metrics["viagens_longas"]))
-metric_cols[3].metric("Inter-regionais", int(metrics["interregionais"]))
-metric_cols[4].metric("Ganho vs. ordem inicial", format_percent(gain))
-
-tab_route, tab_legs, tab_reference, tab_model = st.tabs(
-    ["Rota", "Trechos", "Referenciais", "Modelo"]
-)
-
-with tab_route:
-    graph_col, route_col = st.columns([1.55, 1])
-    with graph_col:
-        st.html(route_svg(clubs, route))
-    with route_col:
-        st.subheader("Sequência recomendada")
-        st.write(" → ".join(place.name for place in route))
-        st.subheader("Leitura operacional")
-        st.write(
-            f"O percurso parte de {start.name}, visita {len(destinations)} clube(s) e "
-            f"{'retorna à origem' if return_to_start else 'encerra no último destino'}. "
-            f"O maior trecho individual tem {format_km(metrics['maior_trecho_km'])}."
+    for idx, (origin, destination) in enumerate(zip(route, route[1:]), start=1):
+        x1, y1 = positions[origin.id]
+        x2, y2 = positions[destination.id]
+        distance = haversine_km(origin, destination)
+        stroke_width = 2.0 + min(distance / 1200.0, 3.5)
+        lines.append(
+            f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+            f'stroke="#111827" stroke-width="{stroke_width:.2f}" opacity="0.58" marker-end="url(#arrow)">'
+            f'<title>{idx}. {svg_escape(origin.name)} -> {svg_escape(destination.name)}: {distance:.0f} km</title></line>'
         )
-        st.download_button(
-            "Baixar rota em CSV",
-            data=display_rows(rows).to_csv(index=False).encode("utf-8-sig"),
-            file_name="footroute_rota_otimizada.csv",
-            mime="text/csv",
+        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+        lines.append(
+            f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="11" fill="#ffffff" stroke="#111827" stroke-width="1" />'
+            f'<text x="{mx:.1f}" y="{my + 4:.1f}" text-anchor="middle" font-family="Arial" font-size="10" font-weight="700" fill="#111827">{idx}</text>'
         )
 
-with tab_legs:
-    st.dataframe(display_rows(rows), width="stretch", hide_index=True)
-
-with tab_reference:
-    ref_cols = st.columns([1, 1])
-    with ref_cols[0]:
-        st.subheader("Clubes")
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "Clube": club.name,
-                        "Cidade": club.city_label,
-                        "Região": club.region,
-                        "Latitude": club.lat,
-                        "Longitude": club.lon,
-                    }
-                    for club in clubs
-                ]
-            ),
-            width="stretch",
-            hide_index=True,
+    for place in all_clubs:
+        x, y = positions[place.id]
+        color = REGION_COLORS.get(place.region, "#6b7280")
+        radius = 11 if place.id in route_ids else 7
+        opacity = "1" if place.id in route_ids else "0.35"
+        lines.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" '
+            f'stroke="#111827" stroke-width="1.4" opacity="{opacity}" />'
         )
-    with ref_cols[1]:
-        st.subheader("Capital de referência")
-        st.dataframe(
-            pd.DataFrame(nearest_capital_rows(clubs, capitals)).rename(
-                columns={
-                    "clube": "Clube",
-                    "cidade_clube": "Cidade",
-                    "regiao_clube": "Região",
-                    "capital_referencia": "Capital",
-                    "uf_capital": "UF",
-                    "regiao_capital": "Região capital",
-                    "distancia_capital_km": "Distância até capital (km)",
-                }
-            ),
-            width="stretch",
-            hide_index=True,
+        lines.append(
+            f'<text x="{x + 14:.1f}" y="{y - 2:.1f}" font-family="Arial" font-size="12" '
+            f'font-weight="700" fill="#111827" opacity="{opacity}">{svg_escape(place.name)}</text>'
+        )
+        lines.append(
+            f'<text x="{x + 14:.1f}" y="{y + 13:.1f}" font-family="Arial" font-size="10" '
+            f'fill="#4b5563" opacity="{opacity}">{svg_escape(place.city_label)}</text>'
         )
 
-    with st.expander("Matriz de distâncias entre clubes"):
-        st.dataframe(pd.DataFrame(distance_matrix(clubs)), width="stretch", hide_index=True)
+    lines.append("</svg>")
+    return "\n".join(lines)
 
-with tab_model:
-    st.markdown(
-        r"""
-### Formulação resumida
 
-Considere um grafo ponderado \(G=(V,E)\), em que cada vértice \(i \in V\)
-representa um clube e cada aresta \((i,j)\) representa o deslocamento entre
-duas cidades-sede. O peso \(d_{ij}\) é a distância geodésica aproximada entre
-os clubes \(i\) e \(j\).
-
-A rota é definida por uma sequência de visitação. Para uma rota
-\(\pi=(\pi_0,\pi_1,\ldots,\pi_n)\), a função objetivo é:
-
-\[
-\min Z = \sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}}
-\]
-
-Se a opção de retorno estiver ativada, adiciona-se o deslocamento final:
-
-\[
-Z_{\text{ciclo}} =
-\sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}} + d_{\pi_n,\pi_0}
-\]
-
-O algoritmo exato usa programação dinâmica do tipo Held-Karp. A heurística usa
-vizinho mais próximo seguido de melhoria local 2-opt, adequada para instâncias
-maiores quando o método exato se torna custoso.
-"""
-    )
+def nearest_capital_rows(clubs: list[Place], capitals: list[Place]) -> list[dict[str, object]]:
+    rows = []
+    for club in clubs:
+        nearest = min(capitals, key=lambda capital: haversine_km(club, capital))
+        rows.append(
+            {
+                "clube": club.name,
+                "cidade_clube": club.city_label,
+                "regiao_clube": club.region,
+                "capital_referencia": nearest.name,
+                "uf_capital": nearest.state,
+                "regiao_capital": nearest.region,
+                "distancia_capital_km": round(haversine_km(club, nearest), 1),
+            }
+        )
+    return rows
