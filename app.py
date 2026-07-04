@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-import html
-from math import hypot
+from math import atan2
 
 import pandas as pd
+import pydeck as pdk
 import streamlit as st
-import streamlit.components.v1 as components
 
 
 ROOT = Path(__file__).resolve().parent
@@ -38,10 +37,6 @@ def load_data() -> tuple[list[Place], list[Place]]:
 
 def format_km(value: float) -> str:
     return f"{value:,.1f} km".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def format_percent(value: float) -> str:
-    return f"{value:.1f}%".replace(".", ",")
 
 
 def bool_label(value: bool) -> str:
@@ -106,177 +101,146 @@ def objective_terms(rows: list[dict[str, object]]) -> str:
     return "Z = " + " + ".join(terms)
 
 
-def _project_points(places: list[Place], width: int, height: int, top_pad: int = 110, side_pad: int = 44):
-    lons = [p.lon for p in places]
-    lats = [p.lat for p in places]
-    min_lon, max_lon = min(lons), max(lons)
-    min_lat, max_lat = min(lats), max(lats)
-    lon_span = max(max_lon - min_lon, 1e-9)
-    lat_span = max(max_lat - min_lat, 1e-9)
+def build_route_map(clubs: list[Place], route: list[Place], total_distance_label: str) -> pdk.Deck:
+    route_names = {p.name for p in route}
 
-    usable_w = width - 2 * side_pad
-    usable_h = height - top_pad - side_pad
+    all_points = pd.DataFrame(
+        {
+            "name": [p.name for p in clubs],
+            "city": [getattr(p, "city_label", f"{p.city}/{p.state}") for p in clubs],
+            "lat": [p.lat for p in clubs],
+            "lon": [p.lon for p in clubs],
+            "in_route": [p.name in route_names for p in clubs],
+        }
+    )
 
-    coords = {}
-    for p in places:
-        x = side_pad + ((p.lon - min_lon) / lon_span) * usable_w
-        y = top_pad + (1 - (p.lat - min_lat) / lat_span) * usable_h
-        coords[p.name] = (x, y)
-    return coords
+    route_points = all_points[all_points["in_route"]].copy()
+    other_points = all_points[~all_points["in_route"]].copy()
 
+    path_df = pd.DataFrame(
+        {
+            "path": [[[p.lon, p.lat] for p in route]],
+        }
+    )
 
-def _city_key(place: Place) -> str:
-    return getattr(place, "city_label", f"{place.city}/{place.state}")
+    # marcador de quilometragem dentro do mapa
+    label_df = pd.DataFrame(
+        [
+            {
+                "lon": -39.5,
+                "lat": 3.0,
+                "text": f"Distância total: {total_distance_label}",
+            }
+        ]
+    )
 
+    # círculos azuis numerados ao longo da rota, distribuídos com leve deslocamento lateral
+    step_records: list[dict[str, float | int | str]] = []
+    for i in range(len(route) - 1):
+        a = route[i]
+        b = route[i + 1]
+        lon1, lat1 = a.lon, a.lat
+        lon2, lat2 = b.lon, b.lat
+        dx, dy = lon2 - lon1, lat2 - lat1
+        angle = atan2(dy, dx)
+        nx, ny = -dy, dx
+        norm = max((nx * nx + ny * ny) ** 0.5, 1e-9)
+        nx /= norm
+        ny /= norm
+        t = 0.42 if i % 2 == 0 else 0.58
+        offset = 0.45 if i % 2 == 0 else -0.45
+        mlon = lon1 + dx * t + nx * offset
+        mlat = lat1 + dy * t + ny * offset
+        step_records.append({"lon": mlon, "lat": mlat, "step": str(i + 1)})
 
-def _jitter_city_points(points: dict[str, tuple[float, float]], places: list[Place]) -> dict[str, tuple[float, float]]:
-    """Separa visualmente clubes com a mesma cidade-sede."""
-    grouped: dict[str, list[Place]] = {}
-    for place in places:
-        grouped.setdefault(_city_key(place), []).append(place)
+    steps_df = pd.DataFrame(step_records)
 
-    adjusted = dict(points)
-    patterns = [
-        (0, 0),
-        (-16, -14),
-        (16, -14),
-        (-16, 14),
-        (16, 14),
-        (0, -25),
-        (0, 25),
-        (-28, 0),
-        (28, 0),
+    layers = [
+        pdk.Layer(
+            "PathLayer",
+            data=path_df,
+            get_path="path",
+            get_color=[59, 130, 246],
+            width_scale=1,
+            width_min_pixels=3,
+            pickable=False,
+        ),
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=other_points,
+            get_position='[lon, lat]',
+            get_radius=45000,
+            get_fill_color=[148, 163, 184, 160],
+            get_line_color=[255, 255, 255, 220],
+            line_width_min_pixels=1,
+            stroked=True,
+            filled=True,
+            pickable=True,
+        ),
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=route_points,
+            get_position='[lon, lat]',
+            get_radius=62000,
+            get_fill_color=[0, 0, 0, 0],
+            get_line_color=[239, 68, 68, 255],
+            line_width_min_pixels=3,
+            stroked=True,
+            filled=False,
+            pickable=True,
+        ),
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=steps_df,
+            get_position='[lon, lat]',
+            get_radius=82000,
+            get_fill_color=[37, 99, 235, 230],
+            get_line_color=[255, 255, 255, 255],
+            line_width_min_pixels=1,
+            stroked=True,
+            filled=True,
+            pickable=False,
+        ),
+        pdk.Layer(
+            "TextLayer",
+            data=steps_df,
+            get_position='[lon, lat]',
+            get_text='step',
+            get_size=14,
+            size_units='pixels',
+            get_color=[255, 255, 255, 255],
+            get_alignment_baseline='center',
+            get_text_anchor='middle',
+            pickable=False,
+        ),
+        pdk.Layer(
+            "TextLayer",
+            data=label_df,
+            get_position='[lon, lat]',
+            get_text='text',
+            get_size=18,
+            size_units='pixels',
+            get_color=[15, 23, 42, 255],
+            get_alignment_baseline='top',
+            get_text_anchor='start',
+            pickable=False,
+        ),
     ]
 
-    for group in grouped.values():
-        if len(group) <= 1:
-            continue
-        cx = sum(points[p.name][0] for p in group) / len(group)
-        cy = sum(points[p.name][1] for p in group) / len(group)
-        for idx, place in enumerate(sorted(group, key=lambda item: item.name)):
-            dx, dy = patterns[idx % len(patterns)]
-            adjusted[place.name] = (cx + dx, cy + dy)
-    return adjusted
+    view_state = pdk.ViewState(latitude=-15.5, longitude=-52.5, zoom=3.25, pitch=0)
 
+    tooltip = {
+        "html": "<b>{name}</b><br/>{city}",
+        "style": {"backgroundColor": "white", "color": "#111827"},
+    }
 
-def _dense_groups(points: dict[str, tuple[float, float]], places: list[Place], threshold: float = 88.0):
-    """Agrupa rótulos que ficariam sobrepostos, mesmo que estejam em cidades próximas."""
-    remaining = set(place.name for place in places)
-    by_name = {place.name: place for place in places}
-    groups: list[list[Place]] = []
+    return pdk.Deck(
+        layers=layers,
+        initial_view_state=view_state,
+        map_style="light",
+        tooltip=tooltip,
+    )
 
-    while remaining:
-        seed = min(remaining)
-        remaining.remove(seed)
-        sx, sy = points[seed]
-        group_names = [seed]
-
-        changed = True
-        while changed:
-            changed = False
-            for name in list(remaining):
-                x, y = points[name]
-                if any(hypot(x - points[g][0], y - points[g][1]) <= threshold for g in group_names):
-                    group_names.append(name)
-                    remaining.remove(name)
-                    changed = True
-
-        groups.append([by_name[name] for name in sorted(group_names)])
-
-    return groups
-
-
-def _callout_position(group: list[Place], base_points: dict[str, tuple[float, float]], width: int, height: int, order: int):
-    xs = [base_points[p.name][0] for p in group]
-    ys = [base_points[p.name][1] for p in group]
-    cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
-
-    # Distribuição determinística dos blocos de rótulos por quadrante.
-    if cx > width * 0.62 and cy < height * 0.55:
-        tx, ty = width - 330, 120 + order * 104
-    elif cx > width * 0.62:
-        tx, ty = width - 330, height - 210 - order * 104
-    elif cx < width * 0.35 and cy > height * 0.55:
-        tx, ty = 70, height - 210 - order * 104
-    else:
-        tx, ty = 70, 120 + order * 104
-
-    tx = max(40, min(width - 340, tx))
-    ty = max(105, min(height - 120, ty))
-    return tx, ty, cx, cy
-
-
-def route_svg(clubs: list[Place], route: list[Place], total_distance_label: str) -> str:
-    width, height = 1280, 780
-    raw_points = _project_points(clubs, width, height)
-    points = _jitter_city_points(raw_points, clubs)
-    selected_names = {p.name for p in route}
-
-    svg: list[str] = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 {width} {height}" ',
-        'style="background:#f3f4f6;border-radius:12px;font-family:Arial, Helvetica, sans-serif">',
-        f'<rect x="0" y="0" width="{width}" height="{height}" rx="12" ry="12" fill="#f3f4f6"/>',
-        '<text x="24" y="36" font-size="20" font-weight="700" fill="#0f172a">Grafo da rota otimizada</text>',
-        '<text x="24" y="62" font-size="13" fill="#334155">Vértices = clubes/cidades-sede</text>',
-        '<text x="24" y="80" font-size="13" fill="#334155">Arestas = deslocamentos selecionados</text>',
-        '<rect x="950" y="18" width="300" height="54" rx="10" fill="#ffffff" opacity="0.92" stroke="#cbd5e1" stroke-width="1"/>',
-        '<text x="968" y="40" font-size="13" font-weight="700" fill="#334155">Distância total</text>',
-        f'<text x="968" y="62" font-size="22" font-weight="700" fill="#0f172a">{html.escape(total_distance_label)}</text>',
-    ]
-
-    if len(route) >= 2:
-        for i in range(len(route) - 1):
-            a = route[i]
-            b = route[i + 1]
-            x1, y1 = points[a.name]
-            x2, y2 = points[b.name]
-            svg.append(
-                f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-                'stroke="#3b82f6" stroke-width="3.2" stroke-linecap="round" opacity="0.95"/>'
-            )
-
-            dx, dy = x2 - x1, y2 - y1
-            seg_len = max((dx * dx + dy * dy) ** 0.5, 1.0)
-            nx, ny = -dy / seg_len, dx / seg_len
-            t_cycle = [0.42, 0.58, 0.48, 0.52]
-            t = t_cycle[i % len(t_cycle)]
-            offset = min(18.0, max(10.0, seg_len * 0.06))
-            sign = -1 if i % 2 else 1
-            mx = x1 + dx * t + nx * offset * sign
-            my = y1 + dy * t + ny * offset * sign
-
-            svg.append(
-                f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="9.5" fill="#2563eb" '
-                'stroke="#ffffff" stroke-width="1.5" opacity="0.96"/>'
-            )
-            svg.append(
-                f'<text x="{mx:.1f}" y="{my + 3.2:.1f}" text-anchor="middle" '
-                'font-size="9.5" font-weight="700" fill="#ffffff">'
-                f'{i + 1}</text>'
-            )
-
-    for p in clubs:
-        x, y = points[p.name]
-        in_route = p.name in selected_names
-
-        if in_route:
-            radius = 9
-            fill = "none"
-            stroke = "#ef4444"
-            stroke_w = 3.2
-        else:
-            radius = 6
-            fill = "#94a3b8"
-            stroke = "#ffffff"
-            stroke_w = 1.6
-
-        svg.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{fill}" '
-            f'stroke="{stroke}" stroke-width="{stroke_w}"/>'
-        )
-
-    svg.append('</svg>')
-    return ''.join(svg)
 
 st.set_page_config(page_title="FootRoute", layout="wide")
 
@@ -286,6 +250,7 @@ club_names = list(clubs_by_name)
 
 st.title("FootRoute")
 st.caption("Painel de otimização de rotas logísticas entre clubes de futebol.")
+st.caption("VERSÃO ATIVA: rota em mapa do Brasil; apenas distância total; sem referencial e sem leitura operacional.")
 
 with st.sidebar:
     st.header("Configuração")
@@ -309,14 +274,14 @@ metrics = summary_metrics(rows)
 
 baseline = baseline_route(start, destinations, return_to_start)
 baseline_distance = route_distance(baseline)
-gain = 0.0 if baseline_distance == 0 else (baseline_distance - total_distance) / baseline_distance * 100
+_ = 0.0 if baseline_distance == 0 else (baseline_distance - total_distance) / baseline_distance * 100
 
 total_distance_label = format_km(metrics["total_km"])
 
 tab_route, tab_legs, tab_model = st.tabs(["Rota", "Trechos", "Modelo"])
 
 with tab_route:
-    components.html(route_svg(clubs, route, total_distance_label), height=780, scrolling=False)
+    st.pydeck_chart(build_route_map(clubs, route, total_distance_label), use_container_width=True, height=700)
     st.subheader("Sequência recomendada")
     st.write(visible_sequence(route, start))
     st.download_button(
@@ -353,7 +318,7 @@ with tab_model:
         st.latex(r"Z_{\text{aberto}} = \sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}}")
     st.markdown("### Função objetivo numérica da rota atual")
     st.code(objective_terms(rows), language="text")
-    st.metric("Valor de Z na solução atual", format_km(metrics["total_km"]))
+    st.metric("Valor de Z na solução atual", total_distance_label)
     st.write(
         "O algoritmo exato usa programação dinâmica Held-Karp. "
         "A heurística usa vizinho mais próximo seguido de melhoria local 2-opt."
