@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import html
+from math import hypot
 
 import pandas as pd
 import streamlit as st
@@ -21,7 +23,6 @@ from footroute.optimization import (  # noqa: E402
     route_rows,
     summary_metrics,
 )
-from footroute.visualization import route_svg  # noqa: E402
 
 
 DATA_DIR = ROOT / "data"
@@ -89,7 +90,6 @@ def solve_route(
 
 
 def visible_sequence(route: list[Place], start: Place) -> str:
-    """Mostra somente os clubes visitados, sem exibir o clube de origem."""
     names = [place.name for place in route if place.name != start.name]
     return " → ".join(names) if names else "Nenhum clube selecionado."
 
@@ -106,6 +106,220 @@ def objective_terms(rows: list[dict[str, object]]) -> str:
     return "Z = " + " + ".join(terms)
 
 
+def _project_points(places: list[Place], width: int, height: int, top_pad: int = 110, side_pad: int = 44):
+    lons = [p.lon for p in places]
+    lats = [p.lat for p in places]
+    min_lon, max_lon = min(lons), max(lons)
+    min_lat, max_lat = min(lats), max(lats)
+    lon_span = max(max_lon - min_lon, 1e-9)
+    lat_span = max(max_lat - min_lat, 1e-9)
+
+    usable_w = width - 2 * side_pad
+    usable_h = height - top_pad - side_pad
+
+    coords = {}
+    for p in places:
+        x = side_pad + ((p.lon - min_lon) / lon_span) * usable_w
+        y = top_pad + (1 - (p.lat - min_lat) / lat_span) * usable_h
+        coords[p.name] = (x, y)
+    return coords
+
+
+def _city_key(place: Place) -> str:
+    return getattr(place, "city_label", f"{place.city}/{place.state}")
+
+
+def _jitter_city_points(points: dict[str, tuple[float, float]], places: list[Place]) -> dict[str, tuple[float, float]]:
+    """Separa visualmente clubes com a mesma cidade-sede."""
+    grouped: dict[str, list[Place]] = {}
+    for place in places:
+        grouped.setdefault(_city_key(place), []).append(place)
+
+    adjusted = dict(points)
+    patterns = [
+        (0, 0),
+        (-16, -14),
+        (16, -14),
+        (-16, 14),
+        (16, 14),
+        (0, -25),
+        (0, 25),
+        (-28, 0),
+        (28, 0),
+    ]
+
+    for group in grouped.values():
+        if len(group) <= 1:
+            continue
+        cx = sum(points[p.name][0] for p in group) / len(group)
+        cy = sum(points[p.name][1] for p in group) / len(group)
+        for idx, place in enumerate(sorted(group, key=lambda item: item.name)):
+            dx, dy = patterns[idx % len(patterns)]
+            adjusted[place.name] = (cx + dx, cy + dy)
+    return adjusted
+
+
+def _dense_groups(points: dict[str, tuple[float, float]], places: list[Place], threshold: float = 88.0):
+    """Agrupa rótulos que ficariam sobrepostos, mesmo que estejam em cidades próximas."""
+    remaining = set(place.name for place in places)
+    by_name = {place.name: place for place in places}
+    groups: list[list[Place]] = []
+
+    while remaining:
+        seed = min(remaining)
+        remaining.remove(seed)
+        sx, sy = points[seed]
+        group_names = [seed]
+
+        changed = True
+        while changed:
+            changed = False
+            for name in list(remaining):
+                x, y = points[name]
+                if any(hypot(x - points[g][0], y - points[g][1]) <= threshold for g in group_names):
+                    group_names.append(name)
+                    remaining.remove(name)
+                    changed = True
+
+        groups.append([by_name[name] for name in sorted(group_names)])
+
+    return groups
+
+
+def _callout_position(group: list[Place], base_points: dict[str, tuple[float, float]], width: int, height: int, order: int):
+    xs = [base_points[p.name][0] for p in group]
+    ys = [base_points[p.name][1] for p in group]
+    cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
+
+    # Distribuição determinística dos blocos de rótulos por quadrante.
+    if cx > width * 0.62 and cy < height * 0.55:
+        tx, ty = width - 330, 120 + order * 104
+    elif cx > width * 0.62:
+        tx, ty = width - 330, height - 210 - order * 104
+    elif cx < width * 0.35 and cy > height * 0.55:
+        tx, ty = 70, height - 210 - order * 104
+    else:
+        tx, ty = 70, 120 + order * 104
+
+    tx = max(40, min(width - 340, tx))
+    ty = max(105, min(height - 120, ty))
+    return tx, ty, cx, cy
+
+
+def route_svg(clubs: list[Place], route: list[Place]) -> str:
+    width, height = 1280, 780
+    raw_points = _project_points(clubs, width, height)
+    points = _jitter_city_points(raw_points, clubs)
+    selected_names = {p.name for p in route}
+
+    svg: list[str] = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 {width} {height}" ',
+        'style="background:#f3f4f6;border-radius:12px;font-family:Arial, Helvetica, sans-serif">',
+        f'<rect x="0" y="0" width="{width}" height="{height}" rx="12" ry="12" fill="#f3f4f6"/>',
+        '<text x="24" y="36" font-size="20" font-weight="700" fill="#0f172a">Grafo da rota otimizada</text>',
+        '<text x="24" y="62" font-size="13" fill="#334155">Vértices = clubes/cidades-sede</text>',
+        '<text x="24" y="80" font-size="13" fill="#334155">Arestas = deslocamentos selecionados</text>',
+    ]
+
+    # Arestas da solução.
+    if len(route) >= 2:
+        for i in range(len(route) - 1):
+            a = route[i]
+            b = route[i + 1]
+            x1, y1 = points[a.name]
+            x2, y2 = points[b.name]
+            svg.append(
+                f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+                'stroke="#3b82f6" stroke-width="3.2" stroke-linecap="round" opacity="0.95"/>'
+            )
+            mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+            svg.append(f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="12" fill="#2563eb" opacity="0.95"/>')
+            svg.append(
+                f'<text x="{mx:.1f}" y="{my + 4:.1f}" text-anchor="middle" '
+                'font-size="11" font-weight="700" fill="#ffffff">'
+                f'{i + 1}</text>'
+            )
+
+    # Nós.
+    for p in clubs:
+        x, y = points[p.name]
+        in_route = p.name in selected_names
+        radius = 9 if in_route else 6
+        fill = "#ef4444" if in_route else "#94a3b8"
+        stroke = "#ffffff"
+        stroke_w = 2.8 if in_route else 1.6
+        svg.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{fill}" '
+            f'stroke="{stroke}" stroke-width="{stroke_w}"/>'
+        )
+
+    groups = _dense_groups(points, clubs, threshold=92.0)
+
+    # Rótulos simples para pontos isolados; caixas para regiões densas.
+    callout_order = 0
+    for group in sorted(groups, key=lambda g: (len(g) == 1, sum(points[p.name][1] for p in g) / len(g))):
+        if len(group) == 1:
+            p = group[0]
+            x, y = points[p.name]
+            city = html.escape(_city_key(p))
+            name = html.escape(p.name)
+            anchor = "start" if x < width * 0.72 else "end"
+            tx = x + 13 if anchor == "start" else x - 13
+            svg.append(
+                f'<text x="{tx:.1f}" y="{y - 7:.1f}" text-anchor="{anchor}" '
+                'font-size="12" font-weight="700" fill="#0f172a">'
+                f'{name}</text>'
+            )
+            svg.append(
+                f'<text x="{tx:.1f}" y="{y + 8:.1f}" text-anchor="{anchor}" '
+                'font-size="10" fill="#475569">'
+                f'{city}</text>'
+            )
+            continue
+
+        tx, ty, cx, cy = _callout_position(group, points, width, height, callout_order)
+        callout_order += 1
+
+        line_h = 17
+        box_w = 315
+        box_h = 34 + line_h * len(group)
+        svg.append(
+            f'<rect x="{tx:.1f}" y="{ty:.1f}" width="{box_w}" height="{box_h}" '
+            'rx="10" fill="#ffffff" opacity="0.88" stroke="#cbd5e1" stroke-width="1"/>'
+        )
+
+        # linha guia do centro do grupo para a caixa
+        svg.append(
+            f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{tx + 10:.1f}" y2="{ty + 16:.1f}" '
+            'stroke="#64748b" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.75"/>'
+        )
+
+        cities = sorted({_city_key(p) for p in group})
+        title = html.escape(" / ".join(cities))
+        svg.append(
+            f'<text x="{tx + 12:.1f}" y="{ty + 20:.1f}" font-size="12" '
+            'font-weight="700" fill="#334155">'
+            f'{title}</text>'
+        )
+
+        for idx, p in enumerate(sorted(group, key=lambda item: item.name)):
+            px, py = points[p.name]
+            marker_y = ty + 40 + idx * line_h
+            svg.append(
+                f'<line x1="{px:.1f}" y1="{py:.1f}" x2="{tx + 15:.1f}" y2="{marker_y - 4:.1f}" '
+                'stroke="#94a3b8" stroke-width="0.8" opacity="0.55"/>'
+            )
+            svg.append(f'<circle cx="{tx + 15:.1f}" cy="{marker_y - 4:.1f}" r="4" fill="#ef4444"/>')
+            svg.append(
+                f'<text x="{tx + 26:.1f}" y="{marker_y:.1f}" font-size="12" '
+                'font-weight="600" fill="#0f172a">'
+                f'{html.escape(p.name)}</text>'
+            )
+
+    svg.append("</svg>")
+    return "".join(svg)
+
+
 st.set_page_config(page_title="FootRoute", layout="wide")
 
 clubs, capitals = load_data()
@@ -114,35 +328,23 @@ club_names = list(clubs_by_name)
 
 st.title("FootRoute")
 st.caption("Painel de otimização de rotas logísticas entre clubes de futebol.")
-st.caption("VERSÃO ATIVA: rota, trechos e modelo; grafo expandido; sem leitura operacional.")
 
 with st.sidebar:
     st.header("Configuração")
     default_index = club_names.index("Flamengo") if "Flamengo" in club_names else 0
     start_name = st.selectbox("Clube de origem", club_names, index=default_index)
-
     available = [name for name in club_names if name != start_name]
     selected_names = st.multiselect("Clubes a visitar", available, default=available)
-
     return_to_start = st.checkbox("Retornar ao clube de origem", value=True)
-
     algorithm = st.radio(
         "Algoritmo",
         ["Exato (Held-Karp)", "Heurístico (vizinho mais próximo + 2-opt)"],
         index=0,
     )
-
-    long_trip_km = st.slider(
-        "Limiar de viagem longa (km)",
-        500,
-        3000,
-        int(LONG_TRIP_DEFAULT),
-        100,
-    )
+    long_trip_km = st.slider("Limiar de viagem longa (km)", 500, 3000, int(LONG_TRIP_DEFAULT), 100)
 
 start = clubs_by_name[start_name]
 destinations = [clubs_by_name[name] for name in selected_names]
-
 route, total_distance = solve_route(algorithm, start, destinations, return_to_start)
 rows = route_rows(route, long_trip_km=float(long_trip_km))
 metrics = summary_metrics(rows)
@@ -161,12 +363,9 @@ metric_cols[4].metric("Ganho vs. ordem inicial", format_percent(gain))
 tab_route, tab_legs, tab_model = st.tabs(["Rota", "Trechos", "Modelo"])
 
 with tab_route:
-    st.subheader("Grafo da rota otimizada")
-    components.html(route_svg(clubs, route), height=760, scrolling=False)
-
+    components.html(route_svg(clubs, route), height=780, scrolling=False)
     st.subheader("Sequência recomendada")
     st.write(visible_sequence(route, start))
-
     st.download_button(
         "Baixar rota em CSV",
         data=display_rows(rows).to_csv(index=False).encode("utf-8-sig"),
@@ -179,43 +378,29 @@ with tab_legs:
 
 with tab_model:
     st.markdown("### Formulação resumida")
-
     st.write(
         "Considere um grafo ponderado, em que cada vértice representa um clube "
         "e cada aresta representa o deslocamento entre duas cidades-sede."
     )
-
     st.latex(r"G=(V,E)")
-
     st.write(
         "O peso associado a cada aresta é a distância geodésica aproximada entre "
         "os clubes i e j."
     )
-
     st.latex(r"d_{ij}=\text{distância geodésica entre os clubes } i \text{ e } j")
-
     st.write("Para uma rota representada por uma sequência de visitação:")
-
     st.latex(r"\pi=(\pi_0,\pi_1,\ldots,\pi_n)")
-
     st.write("A função objetivo é minimizar a distância total percorrida:")
-
     st.latex(r"\min Z = \sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}}")
-
     if return_to_start:
         st.write("Como há retorno à origem, a rota é tratada como um ciclo:")
-        st.latex(
-            r"Z_{\text{ciclo}} = "
-            r"\sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}} + d_{\pi_n,\pi_0}"
-        )
+        st.latex(r"Z_{\text{ciclo}} = \sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}} + d_{\pi_n,\pi_0}")
     else:
         st.write("Como não há retorno à origem, a rota é tratada como caminho aberto:")
         st.latex(r"Z_{\text{aberto}} = \sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}}")
-
     st.markdown("### Função objetivo numérica da rota atual")
     st.code(objective_terms(rows), language="text")
     st.metric("Valor de Z na solução atual", format_km(metrics["total_km"]))
-
     st.write(
         "O algoritmo exato usa programação dinâmica Held-Karp. "
         "A heurística usa vizinho mais próximo seguido de melhoria local 2-opt."
