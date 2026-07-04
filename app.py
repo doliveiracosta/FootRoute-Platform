@@ -234,11 +234,24 @@ def route_svg(clubs: list[Place], route: list[Place], total_distance_label: str)
                 f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
                 'stroke="#3b82f6" stroke-width="3.2" stroke-linecap="round" opacity="0.95"/>'
             )
-            mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-            svg.append(f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="12" fill="#2563eb" opacity="0.95"/>')
+
+            dx, dy = x2 - x1, y2 - y1
+            seg_len = max((dx * dx + dy * dy) ** 0.5, 1.0)
+            nx, ny = -dy / seg_len, dx / seg_len
+            t_cycle = [0.42, 0.58, 0.48, 0.52]
+            t = t_cycle[i % len(t_cycle)]
+            offset = min(18.0, max(10.0, seg_len * 0.06))
+            sign = -1 if i % 2 else 1
+            mx = x1 + dx * t + nx * offset * sign
+            my = y1 + dy * t + ny * offset * sign
+
             svg.append(
-                f'<text x="{mx:.1f}" y="{my + 4:.1f}" text-anchor="middle" '
-                'font-size="11" font-weight="700" fill="#ffffff">'
+                f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="9.5" fill="#2563eb" '
+                'stroke="#ffffff" stroke-width="1.5" opacity="0.96"/>'
+            )
+            svg.append(
+                f'<text x="{mx:.1f}" y="{my + 3.2:.1f}" text-anchor="middle" '
+                'font-size="9.5" font-weight="700" fill="#ffffff">'
                 f'{i + 1}</text>'
             )
 
