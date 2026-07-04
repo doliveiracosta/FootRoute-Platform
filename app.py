@@ -134,7 +134,7 @@ def brazil_image_map_svg(clubs: list[Place], route: list[Place], start: Place, t
         f'<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 {width} {height}" '
         'style="background:#ffffff;border-radius:14px;font-family:Arial, Helvetica, sans-serif">',
         f'<rect x="0" y="0" width="{width}" height="{height}" rx="14" fill="#ffffff"/>',
-        '<text x="28" y="38" font-size="21" font-weight="700" fill="#0f172a">Rota sobre o mapa do Brasil</text>',
+        '<text x="28" y="38" font-size="21" font-weight="700" fill="#0f172a">Rota </text>',
         '<text x="28" y="63" font-size="13" fill="#475569">Pontos = clubes/cidades-sede; linhas = deslocamentos selecionados</text>',
         f'<image x="{image_x}" y="{image_y}" width="{image_w}" height="{image_h}" '
         f'href="data:image/png;base64,{BRAZIL_MAP_B64}" preserveAspectRatio="xMidYMid meet"/>',
