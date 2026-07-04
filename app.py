@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 ROOT = Path(__file__).resolve().parent
@@ -495,7 +496,7 @@ tab_route, tab_legs, tab_reference, tab_model = st.tabs(
 with tab_route:
     graph_col, route_col = st.columns([1.55, 1])
     with graph_col:
-        st.html(route_svg(clubs, route))
+        components.html(route_svg(clubs, route), height=650, scrolling=True)
     with route_col:
         st.subheader("Sequência recomendada")
         st.write(" → ".join(place.name for place in route))
@@ -634,7 +635,7 @@ x_{ij}=\begin{cases}
 
     with graph_col:
         st.markdown("#### Grafo associado à solução")
-        st.html(route_svg(clubs, route))
+        components.html(route_svg(clubs, route), height=650, scrolling=True)
         st.caption("As arestas exibidas representam os arcos selecionados na solução atual.")
         if territorial_summary["clubes_do_interior"] > 0:
             st.warning(
