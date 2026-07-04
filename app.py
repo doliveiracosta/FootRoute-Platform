@@ -212,7 +212,6 @@ club_names = list(clubs_by_name)
 
 st.title("FootRoute")
 st.caption("Painel de otimização de rotas logísticas entre clubes de futebol.")
-st.caption("VERSÃO ATIVA: mapa do Brasil em imagem, origem destacada e distância no mapa.")
 
 with st.sidebar:
     st.header("Configuração")
