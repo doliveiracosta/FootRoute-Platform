@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from base64 import b64encode
 from dataclasses import dataclass
 from io import StringIO
 from math import asin, cos, radians, sin, sqrt
 import csv
 
 import pandas as pd
+import pydeck as pdk
 import streamlit as st
 
 
@@ -183,6 +183,7 @@ def route_map_points(route: list[Place]) -> pd.DataFrame:
         rows.append(
             {
                 "ordem": idx,
+                "label": str(idx),
                 "clube": place.name,
                 "cidade": place.city_label,
                 "regiao": place.region,
@@ -190,9 +191,84 @@ def route_map_points(route: list[Place]) -> pd.DataFrame:
                 "lon": place.lon,
                 "size": 260 if is_origin or is_final_return else 150,
                 "color": "#d62728" if is_origin or is_final_return else "#1f77b4",
+                "fill_color": [214, 39, 40, 230] if is_origin or is_final_return else [31, 119, 180, 220],
             }
         )
     return pd.DataFrame(rows)
+
+
+def route_map_segments(route: list[Place]) -> list[dict[str, object]]:
+    segments = []
+    for idx, (origin, destination) in enumerate(zip(route, route[1:]), start=1):
+        distance = haversine_km(origin, destination)
+        segments.append(
+            {
+                "ordem": idx,
+                "origem": origin.name,
+                "destino": destination.name,
+                "distancia_km": round(distance, 1),
+                "path": [[origin.lon, origin.lat], [destination.lon, destination.lat]],
+                "color": [17, 24, 39, 210],
+                "width": 5 if distance >= 1000 else 3,
+            }
+        )
+    return segments
+
+
+def route_map_layers(route: list[Place]) -> pdk.Deck:
+    points = route_map_points(route)
+    segments = route_map_segments(route)
+    center_lat = float(points["lat"].mean())
+    center_lon = float(points["lon"].mean())
+
+    path_layer = pdk.Layer(
+        "PathLayer",
+        data=segments,
+        get_path="path",
+        get_color="color",
+        get_width="width",
+        width_min_pixels=2,
+        rounded=True,
+        pickable=True,
+    )
+    node_layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=points,
+        get_position="[lon, lat]",
+        get_fill_color="fill_color",
+        get_line_color="[17, 24, 39, 255]",
+        get_radius="size",
+        radius_min_pixels=7,
+        radius_max_pixels=22,
+        line_width_min_pixels=1,
+        stroked=True,
+        pickable=True,
+    )
+    label_layer = pdk.Layer(
+        "TextLayer",
+        data=points,
+        get_position="[lon, lat]",
+        get_text="label",
+        get_size=15,
+        get_color=[255, 255, 255, 255],
+        get_text_anchor="'middle'",
+        get_alignment_baseline="'center'",
+    )
+
+    return pdk.Deck(
+        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+        initial_view_state=pdk.ViewState(
+            latitude=center_lat,
+            longitude=center_lon,
+            zoom=4.2,
+            pitch=0,
+        ),
+        layers=[path_layer, node_layer, label_layer],
+        tooltip={
+            "html": "<b>{origem}</b> → <b>{destino}</b><br/>{distancia_km} km",
+            "style": {"backgroundColor": "#111827", "color": "white"},
+        },
+    )
 
 
 def summary_metrics(rows: list[dict[str, object]]) -> dict[str, float]:
@@ -214,112 +290,6 @@ def csv_bytes(rows: list[dict[str, object]]) -> bytes:
     writer.writeheader()
     writer.writerows(rows)
     return output.getvalue().encode("utf-8-sig")
-
-
-def project_points(places: list[Place], width: int, height: int, margin: int) -> dict[str, tuple[float, float]]:
-    min_lat = min(place.lat for place in places)
-    max_lat = max(place.lat for place in places)
-    min_lon = min(place.lon for place in places)
-    max_lon = max(place.lon for place in places)
-    positions = {}
-    for place in places:
-        x = margin + (place.lon - min_lon) / (max_lon - min_lon) * (width - 2 * margin)
-        y = margin + (max_lat - place.lat) / (max_lat - min_lat) * (height - 2 * margin)
-        positions[place.id] = (x, y)
-    return positions
-
-
-def svg_escape(value: object) -> str:
-    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-
-
-def route_svg(route: list[Place]) -> str:
-    width, height, margin = 1500, 900, 120
-    positions = project_points(CLUBS, width, height, margin)
-    route_ids = {place.id for place in route}
-    lines = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
-        "<defs>",
-        '<marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">',
-        '<path d="M0,0 L0,6 L9,3 z" fill="#111827" opacity="0.86" />',
-        "</marker>",
-        "</defs>",
-        '<rect width="100%" height="100%" fill="#fbfbf8" />',
-        '<text x="42" y="48" font-family="Arial" font-size="26" font-weight="700" fill="#111827">Rota otimizada</text>',
-    ]
-    for idx, (origin, destination) in enumerate(zip(route, route[1:]), start=1):
-        x1, y1 = positions[origin.id]
-        x2, y2 = positions[destination.id]
-        distance = haversine_km(origin, destination)
-        stroke_width = 2.8 + min(distance / 1000.0, 4.5)
-        lines.append(
-            f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-            f'stroke="#111827" stroke-width="{stroke_width:.2f}" opacity="0.62" marker-end="url(#arrow)" />'
-        )
-        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-        lines.append(
-            f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="14" fill="#ffffff" stroke="#111827" stroke-width="1.2" />'
-            f'<text x="{mx:.1f}" y="{my + 5:.1f}" text-anchor="middle" font-family="Arial" font-size="12" font-weight="700" fill="#111827">{idx}</text>'
-        )
-    for place in CLUBS:
-        x, y = positions[place.id]
-        color = REGION_COLORS.get(place.region, "#6b7280")
-        radius = 14 if place.id in route_ids else 8
-        opacity = "1" if place.id in route_ids else "0.35"
-        lines.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" stroke="#111827" stroke-width="1.6" opacity="{opacity}" />'
-        )
-        lines.append(
-            f'<text x="{x + 18:.1f}" y="{y - 2:.1f}" font-family="Arial" font-size="15" font-weight="700" fill="#111827" opacity="{opacity}">{svg_escape(place.name)}</text>'
-        )
-        lines.append(
-            f'<text x="{x + 18:.1f}" y="{y + 16:.1f}" font-family="Arial" font-size="12" fill="#4b5563" opacity="{opacity}">{svg_escape(place.city_label)}</text>'
-        )
-    lines.append("</svg>")
-    return "\n".join(lines)
-
-
-def complete_graph_svg() -> str:
-    width, height, margin = 1500, 900, 120
-    positions = project_points(CLUBS, width, height, margin)
-    lines = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
-        '<rect width="100%" height="100%" fill="#fbfbf8" />',
-        '<text x="42" y="48" font-family="Arial" font-size="26" font-weight="700" fill="#111827">Grafo completo dos clubes</text>',
-    ]
-    for i, origin in enumerate(CLUBS):
-        for destination in CLUBS[i + 1 :]:
-            x1, y1 = positions[origin.id]
-            x2, y2 = positions[destination.id]
-            distance = haversine_km(origin, destination)
-            opacity = 0.10 if distance < 1000 else 0.18
-            stroke_width = 0.9 + min(distance / 1700.0, 2.8)
-            lines.append(
-                f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-                f'stroke="#374151" stroke-width="{stroke_width:.2f}" opacity="{opacity:.2f}" />'
-            )
-    for place in CLUBS:
-        x, y = positions[place.id]
-        color = REGION_COLORS.get(place.region, "#6b7280")
-        lines.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="14" fill="{color}" stroke="#111827" stroke-width="1.6" />'
-        )
-        lines.append(
-            f'<text x="{x + 18:.1f}" y="{y - 2:.1f}" font-family="Arial" font-size="15" font-weight="700" fill="#111827">{svg_escape(place.name)}</text>'
-        )
-        lines.append(
-            f'<text x="{x + 18:.1f}" y="{y + 16:.1f}" font-family="Arial" font-size="12" fill="#4b5563">{svg_escape(place.city_label)}</text>'
-        )
-    lines.append("</svg>")
-    return "\n".join(lines)
-
-
-def render_svg(svg: str) -> None:
-    encoded = b64encode(svg.encode("utf-8")).decode("ascii")
-    st.markdown(
-        f'<img src="data:image/svg+xml;base64,{encoded}" style="width: 100%; height: auto;" />',
-        unsafe_allow_html=True,
-    )
 
 
 def format_km(value: float) -> str:
@@ -371,44 +341,38 @@ metric_cols[2].metric("Viagens longas", int(metrics["viagens_longas"]))
 metric_cols[3].metric("Inter-regionais", int(metrics["interregionais"]))
 metric_cols[4].metric("Ganho vs. ordem inicial", format_percent(gain))
 
-tab_route, tab_map, tab_graph, tab_legs, tab_model = st.tabs(["Rota", "Mapa", "Grafo", "Trechos", "Modelo"])
-
-with tab_route:
-    graph_col, route_col = st.columns([1.75, 0.8])
-    with graph_col:
-        render_svg(route_svg(route))
-    with route_col:
-        st.subheader("Sequência recomendada")
-        st.write(" → ".join(place.name for place in route))
-        st.download_button(
-            "Baixar rota em CSV",
-            data=csv_bytes(rows),
-            file_name="footroute_rota_otimizada.csv",
-            mime="text/csv",
-        )
+tab_map, tab_legs, tab_model = st.tabs(["Mapa", "Trechos", "Modelo"])
 
 with tab_map:
-    st.subheader("Mapa da rota")
+    st.subheader("Mapa com grafo da rota")
     map_points = route_map_points(route)
-    st.map(
-        map_points,
-        latitude="lat",
-        longitude="lon",
-        color="color",
-        size="size",
-        zoom=4,
-        height=650,
-    )
+    st.pydeck_chart(route_map_layers(route), height=720)
     st.dataframe(
         map_points[["ordem", "clube", "cidade", "regiao"]],
         width="stretch",
         hide_index=True,
     )
 
-with tab_graph:
-    render_svg(complete_graph_svg())
-
 with tab_legs:
+    st.subheader("Sequência recomendada")
+    sequence_rows = pd.DataFrame(
+        {
+            "Ordem": range(1, len(route) + 1),
+            "Ponto": [place.name for place in route],
+            "Cidade": [place.city for place in route],
+            "Região": [place.region for place in route],
+        }
+    )
+    st.dataframe(sequence_rows, width="stretch", hide_index=True)
+    st.write(" → ".join(place.name for place in route))
+    st.download_button(
+        "Baixar rota em CSV",
+        data=csv_bytes(rows),
+        file_name="footroute_rota_otimizada.csv",
+        mime="text/csv",
+    )
+    st.divider()
+    st.subheader("Trechos calculados")
     st.dataframe(rows, width="stretch", hide_index=True)
 
 with tab_model:
