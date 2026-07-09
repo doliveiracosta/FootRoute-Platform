@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from base64 import b64encode
+from dataclasses import dataclass
 from io import StringIO
 from math import asin, cos, radians, sin, sqrt
 import csv
 
+import pandas as pd
 import streamlit as st
 
 
@@ -41,15 +42,6 @@ CLUBS = [
     Place("santos", "Santos", "Santos", "SP", "Sudeste", -23.9608, -46.3336),
     Place("sao_paulo", "São Paulo", "São Paulo", "SP", "Sudeste", -23.5505, -46.6333),
     Place("vasco", "Vasco", "Rio de Janeiro", "RJ", "Sudeste", -22.9068, -43.1729),
-]
-
-
-CAPITALS = [
-    Place("salvador", "Salvador", "Salvador", "BA", "Nordeste", -12.9777, -38.5016),
-    Place("belo_horizonte", "Belo Horizonte", "Belo Horizonte", "MG", "Sudeste", -19.9167, -43.9345),
-    Place("rio_de_janeiro", "Rio de Janeiro", "Rio de Janeiro", "RJ", "Sudeste", -22.9068, -43.1729),
-    Place("porto_alegre", "Porto Alegre", "Porto Alegre", "RS", "Sul", -30.0346, -51.2177),
-    Place("sao_paulo_capital", "São Paulo", "São Paulo", "SP", "Sudeste", -23.5505, -46.6333),
 ]
 
 
@@ -183,6 +175,26 @@ def route_rows(route: list[Place], long_trip_km: float) -> list[dict[str, object
     return rows
 
 
+def route_map_points(route: list[Place]) -> pd.DataFrame:
+    rows = []
+    for idx, place in enumerate(route, start=1):
+        is_origin = idx == 1
+        is_final_return = idx == len(route) and place.id == route[0].id and len(route) > 1
+        rows.append(
+            {
+                "ordem": idx,
+                "clube": place.name,
+                "cidade": place.city_label,
+                "regiao": place.region,
+                "lat": place.lat,
+                "lon": place.lon,
+                "size": 260 if is_origin or is_final_return else 150,
+                "color": "#d62728" if is_origin or is_final_return else "#1f77b4",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def summary_metrics(rows: list[dict[str, object]]) -> dict[str, float]:
     distances = [float(row["Distância (km)"]) for row in rows]
     return {
@@ -204,23 +216,6 @@ def csv_bytes(rows: list[dict[str, object]]) -> bytes:
     return output.getvalue().encode("utf-8-sig")
 
 
-def nearest_capital_rows() -> list[dict[str, object]]:
-    rows = []
-    for club in CLUBS:
-        nearest = min(CAPITALS, key=lambda capital: haversine_km(club, capital))
-        rows.append(
-            {
-                "Clube": club.name,
-                "Cidade": club.city_label,
-                "Região": club.region,
-                "Capital": nearest.name,
-                "UF": nearest.state,
-                "Distância até capital (km)": round(haversine_km(club, nearest), 1),
-            }
-        )
-    return rows
-
-
 def project_points(places: list[Place], width: int, height: int, margin: int) -> dict[str, tuple[float, float]]:
     min_lat = min(place.lat for place in places)
     max_lat = max(place.lat for place in places)
@@ -239,7 +234,7 @@ def svg_escape(value: object) -> str:
 
 
 def route_svg(route: list[Place]) -> str:
-    width, height, margin = 1040, 660, 92
+    width, height, margin = 1500, 900, 120
     positions = project_points(CLUBS, width, height, margin)
     route_ids = {place.id for place in route}
     lines = [
@@ -250,83 +245,71 @@ def route_svg(route: list[Place]) -> str:
         "</marker>",
         "</defs>",
         '<rect width="100%" height="100%" fill="#fbfbf8" />',
-        '<text x="36" y="42" font-family="Arial" font-size="22" font-weight="700" fill="#111827">Rota otimizada</text>',
+        '<text x="42" y="48" font-family="Arial" font-size="26" font-weight="700" fill="#111827">Rota otimizada</text>',
     ]
     for idx, (origin, destination) in enumerate(zip(route, route[1:]), start=1):
         x1, y1 = positions[origin.id]
         x2, y2 = positions[destination.id]
         distance = haversine_km(origin, destination)
-        stroke_width = 2.0 + min(distance / 1200.0, 3.5)
+        stroke_width = 2.8 + min(distance / 1000.0, 4.5)
         lines.append(
             f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-            f'stroke="#111827" stroke-width="{stroke_width:.2f}" opacity="0.58" marker-end="url(#arrow)" />'
+            f'stroke="#111827" stroke-width="{stroke_width:.2f}" opacity="0.62" marker-end="url(#arrow)" />'
         )
         mx, my = (x1 + x2) / 2, (y1 + y2) / 2
         lines.append(
-            f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="11" fill="#ffffff" stroke="#111827" stroke-width="1" />'
-            f'<text x="{mx:.1f}" y="{my + 4:.1f}" text-anchor="middle" font-family="Arial" font-size="10" font-weight="700" fill="#111827">{idx}</text>'
+            f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="14" fill="#ffffff" stroke="#111827" stroke-width="1.2" />'
+            f'<text x="{mx:.1f}" y="{my + 5:.1f}" text-anchor="middle" font-family="Arial" font-size="12" font-weight="700" fill="#111827">{idx}</text>'
         )
     for place in CLUBS:
         x, y = positions[place.id]
         color = REGION_COLORS.get(place.region, "#6b7280")
-        radius = 11 if place.id in route_ids else 7
+        radius = 14 if place.id in route_ids else 8
         opacity = "1" if place.id in route_ids else "0.35"
         lines.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" stroke="#111827" stroke-width="1.4" opacity="{opacity}" />'
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" stroke="#111827" stroke-width="1.6" opacity="{opacity}" />'
         )
         lines.append(
-            f'<text x="{x + 14:.1f}" y="{y - 2:.1f}" font-family="Arial" font-size="12" font-weight="700" fill="#111827" opacity="{opacity}">{svg_escape(place.name)}</text>'
+            f'<text x="{x + 18:.1f}" y="{y - 2:.1f}" font-family="Arial" font-size="15" font-weight="700" fill="#111827" opacity="{opacity}">{svg_escape(place.name)}</text>'
         )
         lines.append(
-            f'<text x="{x + 14:.1f}" y="{y + 13:.1f}" font-family="Arial" font-size="10" fill="#4b5563" opacity="{opacity}">{svg_escape(place.city_label)}</text>'
+            f'<text x="{x + 18:.1f}" y="{y + 16:.1f}" font-family="Arial" font-size="12" fill="#4b5563" opacity="{opacity}">{svg_escape(place.city_label)}</text>'
         )
     lines.append("</svg>")
     return "\n".join(lines)
 
 
 def complete_graph_svg() -> str:
-    width, height, margin = 1040, 660, 92
+    width, height, margin = 1500, 900, 120
     positions = project_points(CLUBS, width, height, margin)
     lines = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
         '<rect width="100%" height="100%" fill="#fbfbf8" />',
-        '<text x="36" y="42" font-family="Arial" font-size="22" font-weight="700" fill="#111827">Grafo completo dos clubes</text>',
-        '<text x="36" y="68" font-family="Arial" font-size="13" fill="#4b5563">Nós representam clubes; arestas indicam deslocamentos possíveis entre cidades-sede.</text>',
+        '<text x="42" y="48" font-family="Arial" font-size="26" font-weight="700" fill="#111827">Grafo completo dos clubes</text>',
     ]
-
     for i, origin in enumerate(CLUBS):
         for destination in CLUBS[i + 1 :]:
             x1, y1 = positions[origin.id]
             x2, y2 = positions[destination.id]
             distance = haversine_km(origin, destination)
             opacity = 0.10 if distance < 1000 else 0.18
-            stroke_width = 0.8 + min(distance / 1800.0, 2.4)
+            stroke_width = 0.9 + min(distance / 1700.0, 2.8)
             lines.append(
                 f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
                 f'stroke="#374151" stroke-width="{stroke_width:.2f}" opacity="{opacity:.2f}" />'
             )
-
     for place in CLUBS:
         x, y = positions[place.id]
         color = REGION_COLORS.get(place.region, "#6b7280")
         lines.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="12" fill="{color}" stroke="#111827" stroke-width="1.4" />'
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="14" fill="{color}" stroke="#111827" stroke-width="1.6" />'
         )
         lines.append(
-            f'<text x="{x + 15:.1f}" y="{y - 2:.1f}" font-family="Arial" font-size="12" font-weight="700" fill="#111827">{svg_escape(place.name)}</text>'
+            f'<text x="{x + 18:.1f}" y="{y - 2:.1f}" font-family="Arial" font-size="15" font-weight="700" fill="#111827">{svg_escape(place.name)}</text>'
         )
         lines.append(
-            f'<text x="{x + 15:.1f}" y="{y + 13:.1f}" font-family="Arial" font-size="10" fill="#4b5563">{svg_escape(place.city_label)}</text>'
+            f'<text x="{x + 18:.1f}" y="{y + 16:.1f}" font-family="Arial" font-size="12" fill="#4b5563">{svg_escape(place.city_label)}</text>'
         )
-
-    legend_x, legend_y = 36, 106
-    for idx, (region, color) in enumerate(REGION_COLORS.items()):
-        y = legend_y + idx * 22
-        lines.append(f'<circle cx="{legend_x}" cy="{y}" r="7" fill="{color}" />')
-        lines.append(
-            f'<text x="{legend_x + 15}" y="{y + 4}" font-family="Arial" font-size="12" fill="#374151">{svg_escape(region)}</text>'
-        )
-
     lines.append("</svg>")
     return "\n".join(lines)
 
@@ -388,23 +371,15 @@ metric_cols[2].metric("Viagens longas", int(metrics["viagens_longas"]))
 metric_cols[3].metric("Inter-regionais", int(metrics["interregionais"]))
 metric_cols[4].metric("Ganho vs. ordem inicial", format_percent(gain))
 
-tab_route, tab_graph, tab_legs, tab_reference, tab_model = st.tabs(
-    ["Rota", "Grafo", "Trechos", "Referenciais", "Modelo"]
-)
+tab_route, tab_map, tab_graph, tab_legs, tab_model = st.tabs(["Rota", "Mapa", "Grafo", "Trechos", "Modelo"])
 
 with tab_route:
-    graph_col, route_col = st.columns([1.55, 1])
+    graph_col, route_col = st.columns([1.75, 0.8])
     with graph_col:
         render_svg(route_svg(route))
     with route_col:
         st.subheader("Sequência recomendada")
         st.write(" → ".join(place.name for place in route))
-        st.subheader("Leitura operacional")
-        st.write(
-            f"O percurso parte de {start.name}, visita {len(destinations)} clube(s) e "
-            f"{'retorna à origem' if return_to_start else 'encerra no último destino'}. "
-            f"O maior trecho individual tem {format_km(metrics['maior_trecho_km'])}."
-        )
         st.download_button(
             "Baixar rota em CSV",
             data=csv_bytes(rows),
@@ -412,59 +387,45 @@ with tab_route:
             mime="text/csv",
         )
 
-with tab_graph:
-    st.subheader("Grafo completo")
-    render_svg(complete_graph_svg())
-    st.caption(
-        "O grafo completo representa todos os deslocamentos possíveis entre os clubes. "
-        "No painel de rota, apenas o percurso otimizado é destacado."
+with tab_map:
+    st.subheader("Mapa da rota")
+    map_points = route_map_points(route)
+    st.map(
+        map_points,
+        latitude="lat",
+        longitude="lon",
+        color="color",
+        size="size",
+        zoom=4,
+        height=650,
     )
+    st.dataframe(
+        map_points[["ordem", "clube", "cidade", "regiao"]],
+        width="stretch",
+        hide_index=True,
+    )
+
+with tab_graph:
+    render_svg(complete_graph_svg())
 
 with tab_legs:
     st.dataframe(rows, width="stretch", hide_index=True)
 
-with tab_reference:
-    st.subheader("Clubes")
-    st.dataframe(
-        [
-            {
-                "Clube": club.name,
-                "Cidade": club.city_label,
-                "Região": club.region,
-                "Latitude": club.lat,
-                "Longitude": club.lon,
-            }
-            for club in CLUBS
-        ],
-        width="stretch",
-        hide_index=True,
-    )
-    st.subheader("Capital de referência")
-    st.dataframe(nearest_capital_rows(), width="stretch", hide_index=True)
-
 with tab_model:
-    st.markdown(
-        r"""
-### Formulação resumida
-
-Considere um grafo ponderado \(G=(V,E)\), em que cada vértice representa um
-clube e cada aresta representa o deslocamento entre duas cidades-sede. O peso
-\(d_{ij}\) é a distância geodésica aproximada entre os clubes \(i\) e \(j\).
-
-Para uma rota \(\pi=(\pi_0,\pi_1,\ldots,\pi_n)\), a função objetivo é:
-
-\[
-\min Z = \sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}}
-\]
-
-Se houver retorno à origem:
-
-\[
-Z_{\text{ciclo}} =
-\sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}} + d_{\pi_n,\pi_0}
-\]
-
-O algoritmo exato usa programação dinâmica Held-Karp. A heurística usa vizinho
-mais próximo seguido de melhoria local 2-opt.
-"""
+    st.subheader("Formulação matemática")
+    st.write("Grafo ponderado de deslocamento:")
+    st.latex(r"G=(V,E)")
+    st.write("Peso da aresta entre dois pontos:")
+    st.latex(r"d_{ij}=\operatorname{dist}(i,j)")
+    st.write("Rota de visitação:")
+    st.latex(r"\pi=(\pi_0,\pi_1,\ldots,\pi_n)")
+    st.write("Função objetivo sem retorno obrigatório:")
+    st.latex(r"\min Z=\sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}}")
+    st.write("Função objetivo com retorno à origem:")
+    st.latex(
+        r"Z_{\mathrm{ciclo}}=\sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}}+d_{\pi_n,\pi_0}"
+    )
+    st.write(
+        "O algoritmo exato utiliza programação dinâmica Held-Karp; a alternativa "
+        "heurística combina vizinho mais próximo e melhoria local 2-opt."
     )
