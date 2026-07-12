@@ -1,6 +1,1 @@
 streamlit==1.59.1
-pydeck==0.9.1
-pandas==2.2.3; python_version < "3.13"
-pandas==3.0.3; python_version >= "3.13"
-pyarrow==18.1.0; python_version < "3.13"
-pyarrow==25.0.0; python_version >= "3.13"

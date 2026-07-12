@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from io import StringIO
 from math import asin, cos, radians, sin, sqrt
 import csv
+import html
+import json
 
-import pandas as pd
-import pydeck as pdk
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 RECIFE_CENTER = (-8.0632, -34.8711)
@@ -174,122 +175,113 @@ def route_rows(
     return rows
 
 
-def sequence_rows(route: list[DeliveryPoint]) -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "Ordem": range(1, len(route) + 1),
-            "Ponto": [place.name for place in route],
-            "Bairro": [place.neighborhood for place in route],
-            "Tipo": [place.point_type for place in route],
-        }
-    )
-
-
-def map_points(route: list[DeliveryPoint]) -> pd.DataFrame:
+def sequence_rows(route: list[DeliveryPoint]) -> list[dict[str, object]]:
     rows = []
     for idx, point in enumerate(route, start=1):
-        is_start = idx == 1
-        is_return = idx == len(route) and point.id == route[0].id and len(route) > 1
         rows.append(
             {
-                "order": idx,
+                "Ordem": idx,
+                "Ponto": point.name,
+                "Bairro": point.neighborhood,
+                "Tipo": point.point_type,
+            }
+        )
+    return rows
+
+
+def route_map_html(route: list[DeliveryPoint], rows: list[dict[str, object]]) -> str:
+    points = []
+    for idx, point in enumerate(route, start=1):
+        points.append(
+            {
                 "label": str(idx),
                 "name": point.name,
                 "neighborhood": point.neighborhood,
                 "lat": point.lat,
                 "lon": point.lon,
-                "radius": 95 if is_start or is_return else 65,
-                "fill_color": [220, 38, 38, 235] if is_start or is_return else [37, 99, 235, 225],
-                "tooltip_title": f"{idx}. {point.name}",
-                "tooltip_body": point.neighborhood,
+                "kind": "origin" if idx == 1 else "delivery",
             }
         )
-    return pd.DataFrame(rows)
 
+    route_coordinates = [[point.lat, point.lon] for point in route]
+    points_json = json.dumps(points, ensure_ascii=False)
+    coordinates_json = json.dumps(route_coordinates)
 
-def map_segments(
-    route: list[DeliveryPoint],
-    points: pd.DataFrame,
-    rows: list[dict[str, object]],
-) -> list[dict[str, object]]:
-    segments = []
-    for idx, row in enumerate(rows, start=1):
-        origin_point = points.iloc[idx - 1]
-        destination_point = points.iloc[idx]
-        segments.append(
-            {
-                "path": [
-                    [float(origin_point["lon"]), float(origin_point["lat"])],
-                    [float(destination_point["lon"]), float(destination_point["lat"])],
-                ],
-                "color": [15, 23, 42, 210],
-                "width": 4,
-                "tooltip_title": f'{idx}. {row["Origem"]} -> {row["Destino"]}',
-                "tooltip_body": (
-                    f'{row["Distancia estimada (km)"]} km | '
-                    f'{row["Tempo total (min)"]} min | '
-                    f'R$ {row["Custo estimado (R$)"]}'
-                ),
-            }
-        )
-    return segments
+    return f"""
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body, #map {{
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+    }}
+    .route-marker {{
+      align-items: center;
+      border: 2px solid #111827;
+      border-radius: 999px;
+      color: #fff;
+      display: flex;
+      font-size: 12px;
+      font-weight: 700;
+      height: 26px;
+      justify-content: center;
+      width: 26px;
+    }}
+    .route-origin {{
+      background: #dc2626;
+    }}
+    .route-delivery {{
+      background: #2563eb;
+    }}
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const points = {points_json};
+    const routeCoordinates = {coordinates_json};
+    const map = L.map('map', {{ scrollWheelZoom: true }});
 
+    L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }}).addTo(map);
 
-def route_map(route: list[DeliveryPoint], rows: list[dict[str, object]]) -> pdk.Deck:
-    points = map_points(route)
-    segments = map_segments(route, points, rows)
-    center_lat = float(points["lat"].mean()) if not points.empty else RECIFE_CENTER[0]
-    center_lon = float(points["lon"].mean()) if not points.empty else RECIFE_CENTER[1]
+    const routeLine = L.polyline(routeCoordinates, {{
+      color: '#111827',
+      weight: 4,
+      opacity: 0.82
+    }}).addTo(map);
 
-    path_layer = pdk.Layer(
-        "PathLayer",
-        data=segments,
-        get_path="path",
-        get_color="color",
-        get_width="width",
-        width_min_pixels=3,
-        width_max_pixels=7,
-        rounded=True,
-        pickable=True,
-    )
-    node_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=points,
-        get_position="[lon, lat]",
-        get_fill_color="fill_color",
-        get_line_color=[15, 23, 42, 255],
-        get_radius="radius",
-        radius_min_pixels=8,
-        radius_max_pixels=22,
-        line_width_min_pixels=1,
-        stroked=True,
-        pickable=True,
-    )
-    label_layer = pdk.Layer(
-        "TextLayer",
-        data=points,
-        get_position="[lon, lat]",
-        get_text="label",
-        get_size=14,
-        get_color=[255, 255, 255, 255],
-        get_text_anchor="'middle'",
-        get_alignment_baseline="'center'",
-    )
+    points.forEach((point) => {{
+      const markerClass = point.kind === 'origin' ? 'route-origin' : 'route-delivery';
+      const icon = L.divIcon({{
+        className: '',
+        html: `<div class="route-marker ${{markerClass}}">${{point.label}}</div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13]
+      }});
+      L.marker([point.lat, point.lon], {{ icon }})
+        .bindPopup(`<strong>${{point.label}}. ${{point.name}}</strong><br>${{point.neighborhood}}`)
+        .addTo(map);
+    }});
 
-    return pdk.Deck(
-        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-        initial_view_state=pdk.ViewState(
-            latitude=center_lat,
-            longitude=center_lon,
-            zoom=11.25,
-            pitch=0,
-        ),
-        layers=[path_layer, node_layer, label_layer],
-        tooltip={
-            "html": "<b>{tooltip_title}</b><br/>{tooltip_body}",
-            "style": {"backgroundColor": "#111827", "color": "white"},
-        },
-    )
+    if (routeCoordinates.length > 1) {{
+      map.fitBounds(routeLine.getBounds(), {{ padding: [28, 28] }});
+    }} else {{
+      map.setView(routeCoordinates[0] || [{RECIFE_CENTER[0]}, {RECIFE_CENTER[1]}], 12);
+    }}
+  </script>
+</body>
+</html>
+"""
 
 
 def csv_bytes(rows: list[dict[str, object]]) -> bytes:
@@ -300,6 +292,24 @@ def csv_bytes(rows: list[dict[str, object]]) -> bytes:
     writer.writeheader()
     writer.writerows(rows)
     return output.getvalue().encode("utf-8-sig")
+
+
+def markdown_table(rows: list[dict[str, object]]) -> str:
+    if not rows:
+        return "_Sem registros._"
+
+    headers = list(rows[0].keys())
+
+    def clean(value: object) -> str:
+        return html.escape(str(value)).replace("|", "\\|").replace("\n", " ")
+
+    header_line = "| " + " | ".join(clean(header) for header in headers) + " |"
+    separator_line = "| " + " | ".join("---" for _ in headers) + " |"
+    body_lines = [
+        "| " + " | ".join(clean(row.get(header, "")) for header in headers) + " |"
+        for row in rows
+    ]
+    return "\n".join([header_line, separator_line, *body_lines])
 
 
 def format_km(value: float) -> str:
@@ -378,11 +388,11 @@ tab_map, tab_legs, tab_model = st.tabs(["Mapa", "Trechos", "Modelo"])
 
 with tab_map:
     st.subheader("Mapa da rota recomendada")
-    st.pydeck_chart(route_map(route, rows), height=720)
+    components.html(route_map_html(route, rows), height=720)
 
 with tab_legs:
     st.subheader("Sequencia recomendada")
-    st.dataframe(sequence_rows(route), width="stretch", hide_index=True)
+    st.markdown(markdown_table(sequence_rows(route)))
     st.write(" -> ".join(point.name for point in route))
     st.download_button(
         "Baixar trechos em CSV",
@@ -392,7 +402,7 @@ with tab_legs:
     )
     st.divider()
     st.subheader("Trechos calculados")
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    st.markdown(markdown_table(rows))
 
 with tab_model:
     st.subheader("Modelo matematico")
