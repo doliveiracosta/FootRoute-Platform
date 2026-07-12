@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import StringIO
 from math import asin, cos, radians, sin, sqrt
+from pathlib import Path
 import csv
 
 import pandas as pd
@@ -16,6 +17,8 @@ DEFAULT_AVG_SPEED_KMH = 22
 DEFAULT_COST_PER_KM = 1.15
 DEFAULT_STOP_MINUTES = 4
 EXACT_LIMIT = 12
+DATA_DIR = Path(__file__).resolve().parent / "data"
+NEIGHBORHOOD_SOURCE_URL = "https://pt.wikipedia.org/wiki/Lista_de_bairros_do_Recife"
 
 
 @dataclass(frozen=True)
@@ -30,20 +33,20 @@ class DeliveryPoint:
 
 POINTS = [
     DeliveryPoint("rest_bv", "Restaurante Boa Viagem", "Boa Viagem", "Origem", -8.1265, -34.9006),
-    DeliveryPoint("hub_marco_zero", "Hub Marco Zero", "Recife Antigo", "Origem", -8.0632, -34.8711),
+    DeliveryPoint("hub_marco_zero", "Hub Marco Zero", "Recife", "Origem", -8.0632, -34.8711),
     DeliveryPoint("mercado_madalena", "Mercado Madalena", "Madalena", "Origem", -8.0529, -34.9069),
     DeliveryPoint("pedido_pina", "Pedido Pina", "Pina", "Entrega", -8.0924, -34.8837),
     DeliveryPoint("pedido_imibiribeira", "Pedido Imbiribeira", "Imbiribeira", "Entrega", -8.1103, -34.9126),
     DeliveryPoint("pedido_afogados", "Pedido Afogados", "Afogados", "Entrega", -8.0707, -34.9092),
     DeliveryPoint("pedido_derby", "Pedido Derby", "Derby", "Entrega", -8.0583, -34.8966),
-    DeliveryPoint("pedido_gracas", "Pedido Gracas", "Gracas", "Entrega", -8.0435, -34.8943),
+    DeliveryPoint("pedido_gracas", "Pedido Graças", "Graças", "Entrega", -8.0435, -34.8943),
     DeliveryPoint("pedido_espinheiro", "Pedido Espinheiro", "Espinheiro", "Entrega", -8.0366, -34.8919),
     DeliveryPoint("pedido_jaqueira", "Pedido Jaqueira", "Jaqueira", "Entrega", -8.0371, -34.9042),
     DeliveryPoint("pedido_casa_forte", "Pedido Casa Forte", "Casa Forte", "Entrega", -8.0361, -34.9217),
     DeliveryPoint("pedido_torre", "Pedido Torre", "Torre", "Entrega", -8.0430, -34.9116),
     DeliveryPoint("pedido_cordeiro", "Pedido Cordeiro", "Cordeiro", "Entrega", -8.0511, -34.9302),
     DeliveryPoint("pedido_iputinga", "Pedido Iputinga", "Iputinga", "Entrega", -8.0426, -34.9362),
-    DeliveryPoint("pedido_varzea", "Pedido Varzea", "Varzea", "Entrega", -8.0476, -34.9606),
+    DeliveryPoint("pedido_varzea", "Pedido Várzea", "Várzea", "Entrega", -8.0476, -34.9606),
     DeliveryPoint("pedido_casa_amarela", "Pedido Casa Amarela", "Casa Amarela", "Entrega", -8.0261, -34.9170),
     DeliveryPoint("pedido_encruzilhada", "Pedido Encruzilhada", "Encruzilhada", "Entrega", -8.0278, -34.8925),
     DeliveryPoint("pedido_aflitos", "Pedido Aflitos", "Aflitos", "Entrega", -8.0394, -34.8982),
@@ -51,6 +54,21 @@ POINTS = [
     DeliveryPoint("pedido_santo_amaro", "Pedido Santo Amaro", "Santo Amaro", "Entrega", -8.0487, -34.8793),
     DeliveryPoint("pedido_ibura", "Pedido Ibura", "Ibura", "Entrega", -8.1143, -34.9478),
 ]
+
+
+@st.cache_data
+def load_neighborhood_reference() -> pd.DataFrame:
+    path = DATA_DIR / "bairros_recife.csv"
+    if path.exists():
+        neighborhoods = pd.read_csv(path)
+    else:
+        neighborhoods = pd.DataFrame({"bairro": sorted({point.neighborhood for point in POINTS})})
+
+    mapped_neighborhoods = {point.neighborhood for point in POINTS}
+    neighborhoods["ponto_simulado"] = neighborhoods["bairro"].apply(
+        lambda value: "Sim" if value in mapped_neighborhoods else "Não"
+    )
+    return neighborhoods
 
 
 def haversine_km(a: DeliveryPoint, b: DeliveryPoint) -> float:
@@ -346,23 +364,24 @@ def format_minutes(value: float) -> str:
     return f"{value:,.1f} min".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-st.set_page_config(page_title="FootRoute Recife Delivery", layout="wide")
+st.set_page_config(page_title="RotaRecife", layout="wide")
 
+neighborhood_reference = load_neighborhood_reference()
 points_by_name = {point.name: point for point in POINTS}
 origin_names = [point.name for point in POINTS if point.point_type == "Origem"]
 delivery_names = [point.name for point in POINTS if point.point_type == "Entrega"]
 default_deliveries = [
     "Pedido Pina",
     "Pedido Derby",
-    "Pedido Gracas",
+    "Pedido Graças",
     "Pedido Jaqueira",
     "Pedido Casa Forte",
     "Pedido Afogados",
     "Pedido Imbiribeira",
 ]
 
-st.title("FootRoute Recife Delivery")
-st.caption("Roteirizacao urbana para apoiar entregadores de pedidos em Recife.")
+st.title("RotaRecife")
+st.caption("Roteirizacao urbana para apoiar entregadores de pedidos no Recife.")
 
 with st.sidebar:
     st.header("Configuracao")
@@ -381,6 +400,17 @@ with st.sidebar:
     urban_factor = st.slider("Fator de ajuste viario", 1.00, 1.80, DEFAULT_URBAN_FACTOR, 0.02)
     cost_per_km = st.slider("Custo operacional por km (R$)", 0.30, 4.00, DEFAULT_COST_PER_KM, 0.05)
     stop_minutes = st.slider("Tempo medio por entrega (min)", 0, 15, DEFAULT_STOP_MINUTES, 1)
+
+    st.divider()
+    st.header("Bairros")
+    mapped_count = int((neighborhood_reference["ponto_simulado"] == "Sim").sum())
+    st.caption(
+        f"{len(neighborhood_reference)} bairros na referencia; "
+        f"{mapped_count} com ponto simulado nesta versao."
+    )
+    with st.expander("Ver cobertura por bairro"):
+        st.dataframe(neighborhood_reference, width="stretch", hide_index=True)
+        st.markdown(f"[Fonte da lista de bairros]({NEIGHBORHOOD_SOURCE_URL})")
 
 start = points_by_name[start_name]
 destinations = [points_by_name[name] for name in selected_names]
@@ -424,7 +454,7 @@ with tab_legs:
     st.download_button(
         "Baixar trechos em CSV",
         data=csv_bytes(rows),
-        file_name="footroute_recife_delivery.csv",
+        file_name="rotarecife_trechos.csv",
         mime="text/csv",
     )
     st.divider()
