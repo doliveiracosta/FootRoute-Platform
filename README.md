@@ -13,7 +13,8 @@ O painel permite selecionar um ponto de partida, escolher pedidos simulados em d
 
 ## Funcionalidades
 
-- Selecao do ponto de partida.
+- Selecao de ponto de partida cadastrado ou informado manualmente.
+- Campo para nome, bairro, latitude e longitude do ponto de partida personalizado.
 - Selecao dos pedidos a entregar.
 - Retorno opcional ao ponto de partida.
 - Algoritmo exato Held-Karp para instancias pequenas.

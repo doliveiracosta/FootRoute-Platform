@@ -370,6 +370,7 @@ neighborhood_reference = load_neighborhood_reference()
 points_by_name = {point.name: point for point in POINTS}
 origin_names = [point.name for point in POINTS if point.point_type == "Origem"]
 delivery_names = [point.name for point in POINTS if point.point_type == "Entrega"]
+neighborhood_names = neighborhood_reference["bairro"].dropna().astype(str).tolist()
 default_deliveries = [
     "Pedido Pina",
     "Pedido Derby",
@@ -385,7 +386,46 @@ st.caption("Roteirizacao urbana para apoiar entregadores de pedidos no Recife.")
 
 with st.sidebar:
     st.header("Configuracao")
-    start_name = st.selectbox("Ponto de partida", origin_names, index=0)
+    start_mode = st.radio(
+        "Ponto de partida",
+        ["Ponto cadastrado", "Informar manualmente"],
+        index=0,
+    )
+    if start_mode == "Ponto cadastrado":
+        start_name = st.selectbox("Origem cadastrada", origin_names, index=0)
+        start = points_by_name[start_name]
+    else:
+        custom_start_name = st.text_input("Nome do ponto de partida", value="Minha origem")
+        custom_neighborhood = st.selectbox(
+            "Bairro do ponto de partida",
+            neighborhood_names,
+            index=neighborhood_names.index("Boa Viagem") if "Boa Viagem" in neighborhood_names else 0,
+        )
+        custom_lat = st.number_input(
+            "Latitude do ponto de partida",
+            min_value=-8.20,
+            max_value=-7.90,
+            value=RECIFE_CENTER[0],
+            step=0.0001,
+            format="%.6f",
+        )
+        custom_lon = st.number_input(
+            "Longitude do ponto de partida",
+            min_value=-35.05,
+            max_value=-34.80,
+            value=RECIFE_CENTER[1],
+            step=0.0001,
+            format="%.6f",
+        )
+        start = DeliveryPoint(
+            "origem_manual",
+            custom_start_name.strip() or "Minha origem",
+            custom_neighborhood,
+            "Origem",
+            float(custom_lat),
+            float(custom_lon),
+        )
+
     selected_names = st.multiselect("Pedidos a entregar", delivery_names, default=default_deliveries)
     return_to_start = st.checkbox("Retornar ao ponto de partida", value=True)
     algorithm = st.radio(
@@ -412,7 +452,6 @@ with st.sidebar:
         st.dataframe(neighborhood_reference, width="stretch", hide_index=True)
         st.markdown(f"[Fonte da lista de bairros]({NEIGHBORHOOD_SOURCE_URL})")
 
-start = points_by_name[start_name]
 destinations = [points_by_name[name] for name in selected_names]
 
 use_exact = algorithm.startswith("Exato") and len(destinations) <= EXACT_LIMIT
