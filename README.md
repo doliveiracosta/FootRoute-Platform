@@ -37,7 +37,7 @@ Em **Advanced settings**, selecione:
 Python version: 3.12
 ```
 
-Essa configuracao evita instabilidades observadas com Python 3.14 no Streamlit Cloud.
+Essa configuracao evita instabilidades observadas com Python 3.14 no Streamlit Cloud. Se o log continuar mostrando `Using Python 3.14.6 environment`, edite as configuracoes do app no Streamlit Cloud ou recrie o app selecionando Python 3.12 antes do deploy.
 
 ## Execucao local
 
