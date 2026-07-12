@@ -10,49 +10,50 @@ import pydeck as pdk
 import streamlit as st
 
 
-LONG_TRIP_DEFAULT = 1500.0
+RECIFE_CENTER = (-8.0632, -34.8711)
+DEFAULT_URBAN_FACTOR = 1.32
+DEFAULT_AVG_SPEED_KMH = 22
+DEFAULT_COST_PER_KM = 1.15
+DEFAULT_STOP_MINUTES = 4
+EXACT_LIMIT = 12
 
 
 @dataclass(frozen=True)
-class Place:
+class DeliveryPoint:
     id: str
     name: str
-    city: str
-    state: str
-    region: str
+    neighborhood: str
+    point_type: str
     lat: float
     lon: float
 
-    @property
-    def city_label(self) -> str:
-        return f"{self.city}-{self.state}"
 
-
-CLUBS = [
-    Place("atletico_mg", "Atlético-MG", "Belo Horizonte", "MG", "Sudeste", -19.9167, -43.9345),
-    Place("bahia", "Bahia", "Salvador", "BA", "Nordeste", -12.9777, -38.5016),
-    Place("botafogo", "Botafogo", "Rio de Janeiro", "RJ", "Sudeste", -22.9068, -43.1729),
-    Place("corinthians", "Corinthians", "São Paulo", "SP", "Sudeste", -23.5505, -46.6333),
-    Place("cruzeiro", "Cruzeiro", "Belo Horizonte", "MG", "Sudeste", -19.9167, -43.9345),
-    Place("flamengo", "Flamengo", "Rio de Janeiro", "RJ", "Sudeste", -22.9068, -43.1729),
-    Place("fluminense", "Fluminense", "Rio de Janeiro", "RJ", "Sudeste", -22.9068, -43.1729),
-    Place("gremio", "Grêmio", "Porto Alegre", "RS", "Sul", -30.0346, -51.2177),
-    Place("internacional", "Internacional", "Porto Alegre", "RS", "Sul", -30.0346, -51.2177),
-    Place("palmeiras", "Palmeiras", "São Paulo", "SP", "Sudeste", -23.5505, -46.6333),
-    Place("santos", "Santos", "Santos", "SP", "Sudeste", -23.9608, -46.3336),
-    Place("sao_paulo", "São Paulo", "São Paulo", "SP", "Sudeste", -23.5505, -46.6333),
-    Place("vasco", "Vasco", "Rio de Janeiro", "RJ", "Sudeste", -22.9068, -43.1729),
+POINTS = [
+    DeliveryPoint("rest_bv", "Restaurante Boa Viagem", "Boa Viagem", "Origem", -8.1265, -34.9006),
+    DeliveryPoint("hub_marco_zero", "Hub Marco Zero", "Recife Antigo", "Origem", -8.0632, -34.8711),
+    DeliveryPoint("mercado_madalena", "Mercado Madalena", "Madalena", "Origem", -8.0529, -34.9069),
+    DeliveryPoint("pedido_pina", "Pedido Pina", "Pina", "Entrega", -8.0924, -34.8837),
+    DeliveryPoint("pedido_imibiribeira", "Pedido Imbiribeira", "Imbiribeira", "Entrega", -8.1103, -34.9126),
+    DeliveryPoint("pedido_afogados", "Pedido Afogados", "Afogados", "Entrega", -8.0707, -34.9092),
+    DeliveryPoint("pedido_derby", "Pedido Derby", "Derby", "Entrega", -8.0583, -34.8966),
+    DeliveryPoint("pedido_gracas", "Pedido Gracas", "Gracas", "Entrega", -8.0435, -34.8943),
+    DeliveryPoint("pedido_espinheiro", "Pedido Espinheiro", "Espinheiro", "Entrega", -8.0366, -34.8919),
+    DeliveryPoint("pedido_jaqueira", "Pedido Jaqueira", "Jaqueira", "Entrega", -8.0371, -34.9042),
+    DeliveryPoint("pedido_casa_forte", "Pedido Casa Forte", "Casa Forte", "Entrega", -8.0361, -34.9217),
+    DeliveryPoint("pedido_torre", "Pedido Torre", "Torre", "Entrega", -8.0430, -34.9116),
+    DeliveryPoint("pedido_cordeiro", "Pedido Cordeiro", "Cordeiro", "Entrega", -8.0511, -34.9302),
+    DeliveryPoint("pedido_iputinga", "Pedido Iputinga", "Iputinga", "Entrega", -8.0426, -34.9362),
+    DeliveryPoint("pedido_varzea", "Pedido Varzea", "Varzea", "Entrega", -8.0476, -34.9606),
+    DeliveryPoint("pedido_casa_amarela", "Pedido Casa Amarela", "Casa Amarela", "Entrega", -8.0261, -34.9170),
+    DeliveryPoint("pedido_encruzilhada", "Pedido Encruzilhada", "Encruzilhada", "Entrega", -8.0278, -34.8925),
+    DeliveryPoint("pedido_aflitos", "Pedido Aflitos", "Aflitos", "Entrega", -8.0394, -34.8982),
+    DeliveryPoint("pedido_boa_vista", "Pedido Boa Vista", "Boa Vista", "Entrega", -8.0589, -34.8833),
+    DeliveryPoint("pedido_santo_amaro", "Pedido Santo Amaro", "Santo Amaro", "Entrega", -8.0487, -34.8793),
+    DeliveryPoint("pedido_ibura", "Pedido Ibura", "Ibura", "Entrega", -8.1143, -34.9478),
 ]
 
 
-REGION_COLORS = {
-    "Nordeste": "#f28e2b",
-    "Sudeste": "#4e79a7",
-    "Sul": "#e15759",
-}
-
-
-def haversine_km(a: Place, b: Place) -> float:
+def haversine_km(a: DeliveryPoint, b: DeliveryPoint) -> float:
     radius = 6371.0
     lat1, lon1 = radians(a.lat), radians(a.lon)
     lat2, lon2 = radians(b.lat), radians(b.lon)
@@ -62,11 +63,20 @@ def haversine_km(a: Place, b: Place) -> float:
     return 2 * radius * asin(sqrt(h))
 
 
-def route_distance(route: list[Place]) -> float:
-    return sum(haversine_km(a, b) for a, b in zip(route, route[1:]))
+def estimated_distance_km(a: DeliveryPoint, b: DeliveryPoint, urban_factor: float) -> float:
+    return haversine_km(a, b) * urban_factor
 
 
-def held_karp(start: Place, destinations: list[Place], return_to_start: bool) -> tuple[list[Place], float]:
+def route_distance(route: list[DeliveryPoint], urban_factor: float) -> float:
+    return sum(estimated_distance_km(a, b, urban_factor) for a, b in zip(route, route[1:]))
+
+
+def held_karp(
+    start: DeliveryPoint,
+    destinations: list[DeliveryPoint],
+    return_to_start: bool,
+    urban_factor: float,
+) -> tuple[list[DeliveryPoint], float]:
     if not destinations:
         route = [start, start] if return_to_start else [start]
         return route, 0.0
@@ -75,7 +85,7 @@ def held_karp(start: Place, destinations: list[Place], return_to_start: bool) ->
     dp: dict[tuple[int, int], tuple[float, int | None]] = {}
 
     for j, destination in enumerate(destinations):
-        dp[(1 << j, j)] = (haversine_km(start, destination), None)
+        dp[(1 << j, j)] = (estimated_distance_km(start, destination, urban_factor), None)
 
     for mask in range(1, 1 << n):
         for j in range(n):
@@ -86,7 +96,7 @@ def held_karp(start: Place, destinations: list[Place], return_to_start: bool) ->
                 if mask & (1 << k):
                     continue
                 new_mask = mask | (1 << k)
-                new_cost = current_cost + haversine_km(destinations[j], destinations[k])
+                new_cost = current_cost + estimated_distance_km(destinations[j], destinations[k], urban_factor)
                 previous = dp.get((new_mask, k))
                 if previous is None or new_cost < previous[0]:
                     dp[(new_mask, k)] = (new_cost, j)
@@ -94,16 +104,15 @@ def held_karp(start: Place, destinations: list[Place], return_to_start: bool) ->
     full_mask = (1 << n) - 1
     best_last = 0
     best_cost = float("inf")
-
     for j in range(n):
         cost, _ = dp[(full_mask, j)]
         if return_to_start:
-            cost += haversine_km(destinations[j], start)
+            cost += estimated_distance_km(destinations[j], start, urban_factor)
         if cost < best_cost:
             best_cost = cost
             best_last = j
 
-    ordered: list[Place] = []
+    ordered: list[DeliveryPoint] = []
     mask = full_mask
     last: int | None = best_last
     while last is not None:
@@ -118,12 +127,17 @@ def held_karp(start: Place, destinations: list[Place], return_to_start: bool) ->
     return route, best_cost
 
 
-def nearest_neighbor(start: Place, destinations: list[Place], return_to_start: bool) -> list[Place]:
+def nearest_neighbor(
+    start: DeliveryPoint,
+    destinations: list[DeliveryPoint],
+    return_to_start: bool,
+    urban_factor: float,
+) -> list[DeliveryPoint]:
     unvisited = destinations[:]
     route = [start]
     current = start
     while unvisited:
-        next_place = min(unvisited, key=lambda place: haversine_km(current, place))
+        next_place = min(unvisited, key=lambda place: estimated_distance_km(current, place, urban_factor))
         route.append(next_place)
         unvisited.remove(next_place)
         current = next_place
@@ -132,94 +146,132 @@ def nearest_neighbor(start: Place, destinations: list[Place], return_to_start: b
     return route
 
 
-def two_opt(route: list[Place], fixed_cycle: bool) -> list[Place]:
+def two_opt(route: list[DeliveryPoint], fixed_cycle: bool, urban_factor: float) -> list[DeliveryPoint]:
     best = route[:]
     improved = True
     start_index = 1
     end_limit = len(best) - 1 if fixed_cycle else len(best)
+
     while improved:
         improved = False
         for i in range(start_index, end_limit - 1):
             for k in range(i + 1, end_limit):
                 candidate = best[:i] + best[i : k + 1][::-1] + best[k + 1 :]
-                if route_distance(candidate) + 1e-9 < route_distance(best):
+                if route_distance(candidate, urban_factor) + 1e-9 < route_distance(best, urban_factor):
                     best = candidate
                     improved = True
     return best
 
 
-def heuristic_route(start: Place, destinations: list[Place], return_to_start: bool) -> tuple[list[Place], float]:
-    route = nearest_neighbor(start, destinations, return_to_start)
-    optimized = two_opt(route, fixed_cycle=return_to_start)
-    return optimized, route_distance(optimized)
+def heuristic_route(
+    start: DeliveryPoint,
+    destinations: list[DeliveryPoint],
+    return_to_start: bool,
+    urban_factor: float,
+) -> tuple[list[DeliveryPoint], float]:
+    route = nearest_neighbor(start, destinations, return_to_start, urban_factor)
+    optimized = two_opt(route, fixed_cycle=return_to_start, urban_factor=urban_factor)
+    return optimized, route_distance(optimized, urban_factor)
 
 
-def route_rows(route: list[Place], long_trip_km: float) -> list[dict[str, object]]:
+def route_rows(
+    route: list[DeliveryPoint],
+    urban_factor: float,
+    avg_speed_kmh: float,
+    cost_per_km: float,
+    stop_minutes: int,
+) -> list[dict[str, object]]:
     rows = []
     for idx, (origin, destination) in enumerate(zip(route, route[1:]), start=1):
-        distance = haversine_km(origin, destination)
+        distance = estimated_distance_km(origin, destination, urban_factor)
+        travel_minutes = distance / avg_speed_kmh * 60 if avg_speed_kmh > 0 else 0
+        has_delivery_stop = destination.id != route[0].id
+        service_minutes = stop_minutes if has_delivery_stop else 0
+        total_minutes = travel_minutes + service_minutes
+        cost = distance * cost_per_km
         rows.append(
             {
                 "Ordem": idx,
                 "Origem": origin.name,
                 "Destino": destination.name,
-                "Cidade origem": origin.city_label,
-                "Cidade destino": destination.city_label,
-                "Região origem": origin.region,
-                "Região destino": destination.region,
-                "Distância (km)": round(distance, 1),
-                "Inter-regional": "Sim" if origin.region != destination.region else "Não",
-                "Viagem longa": "Sim" if distance >= long_trip_km else "Não",
+                "Bairro origem": origin.neighborhood,
+                "Bairro destino": destination.neighborhood,
+                "Distancia estimada (km)": round(distance, 2),
+                "Tempo deslocamento (min)": round(travel_minutes, 1),
+                "Tempo parada (min)": service_minutes,
+                "Tempo total (min)": round(total_minutes, 1),
+                "Custo estimado (R$)": round(cost, 2),
             }
         )
     return rows
 
 
-def route_map_points(route: list[Place]) -> pd.DataFrame:
+def sequence_rows(route: list[DeliveryPoint]) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "Ordem": range(1, len(route) + 1),
+            "Ponto": [place.name for place in route],
+            "Bairro": [place.neighborhood for place in route],
+            "Tipo": [place.point_type for place in route],
+        }
+    )
+
+
+def map_points(route: list[DeliveryPoint]) -> pd.DataFrame:
     rows = []
-    for idx, place in enumerate(route, start=1):
-        is_origin = idx == 1
-        is_final_return = idx == len(route) and place.id == route[0].id and len(route) > 1
+    for idx, point in enumerate(route, start=1):
+        is_start = idx == 1
+        is_return = idx == len(route) and point.id == route[0].id and len(route) > 1
         rows.append(
             {
-                "ordem": idx,
+                "order": idx,
                 "label": str(idx),
-                "clube": place.name,
-                "cidade": place.city_label,
-                "regiao": place.region,
-                "lat": place.lat,
-                "lon": place.lon,
-                "size": 260 if is_origin or is_final_return else 150,
-                "color": "#d62728" if is_origin or is_final_return else "#1f77b4",
-                "fill_color": [214, 39, 40, 230] if is_origin or is_final_return else [31, 119, 180, 220],
+                "name": point.name,
+                "neighborhood": point.neighborhood,
+                "lat": point.lat,
+                "lon": point.lon,
+                "radius": 95 if is_start or is_return else 65,
+                "fill_color": [220, 38, 38, 235] if is_start or is_return else [37, 99, 235, 225],
+                "tooltip_title": f"{idx}. {point.name}",
+                "tooltip_body": point.neighborhood,
             }
         )
     return pd.DataFrame(rows)
 
 
-def route_map_segments(route: list[Place]) -> list[dict[str, object]]:
+def map_segments(
+    route: list[DeliveryPoint],
+    points: pd.DataFrame,
+    rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
     segments = []
-    for idx, (origin, destination) in enumerate(zip(route, route[1:]), start=1):
-        distance = haversine_km(origin, destination)
+    for idx, row in enumerate(rows, start=1):
+        origin_point = points.iloc[idx - 1]
+        destination_point = points.iloc[idx]
         segments.append(
             {
-                "ordem": idx,
-                "origem": origin.name,
-                "destino": destination.name,
-                "distancia_km": round(distance, 1),
-                "path": [[origin.lon, origin.lat], [destination.lon, destination.lat]],
-                "color": [17, 24, 39, 210],
-                "width": 5 if distance >= 1000 else 3,
+                "path": [
+                    [float(origin_point["lon"]), float(origin_point["lat"])],
+                    [float(destination_point["lon"]), float(destination_point["lat"])],
+                ],
+                "color": [15, 23, 42, 210],
+                "width": 4,
+                "tooltip_title": f'{idx}. {row["Origem"]} -> {row["Destino"]}',
+                "tooltip_body": (
+                    f'{row["Distancia estimada (km)"]} km | '
+                    f'{row["Tempo total (min)"]} min | '
+                    f'R$ {row["Custo estimado (R$)"]}'
+                ),
             }
         )
     return segments
 
 
-def route_map_layers(route: list[Place]) -> pdk.Deck:
-    points = route_map_points(route)
-    segments = route_map_segments(route)
-    center_lat = float(points["lat"].mean())
-    center_lon = float(points["lon"].mean())
+def route_map(route: list[DeliveryPoint], rows: list[dict[str, object]]) -> pdk.Deck:
+    points = map_points(route)
+    segments = map_segments(route, points, rows)
+    center_lat = float(points["lat"].mean()) if not points.empty else RECIFE_CENTER[0]
+    center_lon = float(points["lon"].mean()) if not points.empty else RECIFE_CENTER[1]
 
     path_layer = pdk.Layer(
         "PathLayer",
@@ -227,7 +279,8 @@ def route_map_layers(route: list[Place]) -> pdk.Deck:
         get_path="path",
         get_color="color",
         get_width="width",
-        width_min_pixels=2,
+        width_min_pixels=3,
+        width_max_pixels=7,
         rounded=True,
         pickable=True,
     )
@@ -236,9 +289,9 @@ def route_map_layers(route: list[Place]) -> pdk.Deck:
         data=points,
         get_position="[lon, lat]",
         get_fill_color="fill_color",
-        get_line_color="[17, 24, 39, 255]",
-        get_radius="size",
-        radius_min_pixels=7,
+        get_line_color=[15, 23, 42, 255],
+        get_radius="radius",
+        radius_min_pixels=8,
         radius_max_pixels=22,
         line_width_min_pixels=1,
         stroked=True,
@@ -249,7 +302,7 @@ def route_map_layers(route: list[Place]) -> pdk.Deck:
         data=points,
         get_position="[lon, lat]",
         get_text="label",
-        get_size=15,
+        get_size=14,
         get_color=[255, 255, 255, 255],
         get_text_anchor="'middle'",
         get_alignment_baseline="'center'",
@@ -260,26 +313,15 @@ def route_map_layers(route: list[Place]) -> pdk.Deck:
         initial_view_state=pdk.ViewState(
             latitude=center_lat,
             longitude=center_lon,
-            zoom=4.2,
+            zoom=11.25,
             pitch=0,
         ),
         layers=[path_layer, node_layer, label_layer],
         tooltip={
-            "html": "<b>{origem}</b> → <b>{destino}</b><br/>{distancia_km} km",
+            "html": "<b>{tooltip_title}</b><br/>{tooltip_body}",
             "style": {"backgroundColor": "#111827", "color": "white"},
         },
     )
-
-
-def summary_metrics(rows: list[dict[str, object]]) -> dict[str, float]:
-    distances = [float(row["Distância (km)"]) for row in rows]
-    return {
-        "total_km": sum(distances),
-        "maior_trecho_km": max(distances, default=0.0),
-        "trechos": float(len(rows)),
-        "viagens_longas": float(sum(1 for row in rows if row["Viagem longa"] == "Sim")),
-        "interregionais": float(sum(1 for row in rows if row["Inter-regional"] == "Sim")),
-    }
 
 
 def csv_bytes(rows: list[dict[str, object]]) -> bytes:
@@ -293,103 +335,122 @@ def csv_bytes(rows: list[dict[str, object]]) -> bytes:
 
 
 def format_km(value: float) -> str:
-    return f"{value:,.1f} km".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{value:,.2f} km".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def format_percent(value: float) -> str:
-    return f"{value:.1f}%".replace(".", ",")
+def format_money(value: float) -> str:
+    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-st.set_page_config(page_title="FootRoute", layout="wide")
-clubs_by_name = {club.name: club for club in CLUBS}
-club_names = list(clubs_by_name)
+def format_minutes(value: float) -> str:
+    return f"{value:,.1f} min".replace(",", "X").replace(".", ",").replace("X", ".")
 
-st.title("FootRoute")
-st.caption("Painel de otimização de rotas logísticas entre clubes de futebol.")
+
+st.set_page_config(page_title="FootRoute Recife Delivery", layout="wide")
+
+points_by_name = {point.name: point for point in POINTS}
+origin_names = [point.name for point in POINTS if point.point_type == "Origem"]
+delivery_names = [point.name for point in POINTS if point.point_type == "Entrega"]
+default_deliveries = [
+    "Pedido Pina",
+    "Pedido Derby",
+    "Pedido Gracas",
+    "Pedido Jaqueira",
+    "Pedido Casa Forte",
+    "Pedido Afogados",
+    "Pedido Imbiribeira",
+]
+
+st.title("FootRoute Recife Delivery")
+st.caption("Roteirizacao urbana para apoiar entregadores de pedidos em Recife.")
 
 with st.sidebar:
-    st.header("Configuração")
-    start_name = st.selectbox("Clube de origem", club_names, index=club_names.index("Flamengo"))
-    available = [name for name in club_names if name != start_name]
-    selected_names = st.multiselect("Clubes a visitar", available, default=available)
-    return_to_start = st.checkbox("Retornar ao clube de origem", value=True)
+    st.header("Configuracao")
+    start_name = st.selectbox("Ponto de partida", origin_names, index=0)
+    selected_names = st.multiselect("Pedidos a entregar", delivery_names, default=default_deliveries)
+    return_to_start = st.checkbox("Retornar ao ponto de partida", value=True)
     algorithm = st.radio(
         "Algoritmo",
-        ["Exato (Held-Karp)", "Heurístico (vizinho mais próximo + 2-opt)"],
+        ["Exato (Held-Karp)", "Heuristico (vizinho mais proximo + 2-opt)"],
         index=0,
     )
-    long_trip_km = st.slider("Limiar de viagem longa (km)", 500, 3000, int(LONG_TRIP_DEFAULT), 100)
 
-start = clubs_by_name[start_name]
-destinations = [clubs_by_name[name] for name in selected_names]
-route, total_distance = (
-    held_karp(start, destinations, return_to_start)
-    if algorithm.startswith("Exato")
-    else heuristic_route(start, destinations, return_to_start)
-)
+    st.divider()
+    st.header("Parametros operacionais")
+    avg_speed_kmh = st.slider("Velocidade media urbana (km/h)", 8, 45, DEFAULT_AVG_SPEED_KMH, 1)
+    urban_factor = st.slider("Fator de ajuste viario", 1.00, 1.80, DEFAULT_URBAN_FACTOR, 0.02)
+    cost_per_km = st.slider("Custo operacional por km (R$)", 0.30, 4.00, DEFAULT_COST_PER_KM, 0.05)
+    stop_minutes = st.slider("Tempo medio por entrega (min)", 0, 15, DEFAULT_STOP_MINUTES, 1)
 
-rows = route_rows(route, float(long_trip_km))
-metrics = summary_metrics(rows)
-baseline = [start] + destinations + ([start] if return_to_start else [])
-baseline_distance = route_distance(baseline)
-gain = 0.0 if baseline_distance == 0 else (baseline_distance - total_distance) / baseline_distance * 100
+start = points_by_name[start_name]
+destinations = [points_by_name[name] for name in selected_names]
+
+use_exact = algorithm.startswith("Exato") and len(destinations) <= EXACT_LIMIT
+if algorithm.startswith("Exato") and len(destinations) > EXACT_LIMIT:
+    st.warning(
+        f"O modo exato foi trocado pela heuristica porque ha {len(destinations)} pedidos. "
+        f"Use ate {EXACT_LIMIT} pedidos para Held-Karp."
+    )
+
+if use_exact:
+    route, optimized_distance = held_karp(start, destinations, return_to_start, urban_factor)
+else:
+    route, optimized_distance = heuristic_route(start, destinations, return_to_start, urban_factor)
+
+rows = route_rows(route, urban_factor, avg_speed_kmh, cost_per_km, stop_minutes)
+total_distance = sum(float(row["Distancia estimada (km)"]) for row in rows)
+total_travel_minutes = sum(float(row["Tempo deslocamento (min)"]) for row in rows)
+total_stop_minutes = sum(float(row["Tempo parada (min)"]) for row in rows)
+total_minutes = sum(float(row["Tempo total (min)"]) for row in rows)
+total_cost = sum(float(row["Custo estimado (R$)"]) for row in rows)
 
 metric_cols = st.columns(5)
-metric_cols[0].metric("Distância total", format_km(metrics["total_km"]))
-metric_cols[1].metric("Trechos", int(metrics["trechos"]))
-metric_cols[2].metric("Viagens longas", int(metrics["viagens_longas"]))
-metric_cols[3].metric("Inter-regionais", int(metrics["interregionais"]))
-metric_cols[4].metric("Ganho vs. ordem inicial", format_percent(gain))
+metric_cols[0].metric("Distancia total", format_km(total_distance))
+metric_cols[1].metric("Tempo total", format_minutes(total_minutes))
+metric_cols[2].metric("Custo estimado", format_money(total_cost))
+metric_cols[3].metric("Pedidos", len(destinations))
+metric_cols[4].metric("Trechos", len(rows))
 
 tab_map, tab_legs, tab_model = st.tabs(["Mapa", "Trechos", "Modelo"])
 
 with tab_map:
-    st.subheader("Mapa com grafo da rota")
-    map_points = route_map_points(route)
-    st.pydeck_chart(route_map_layers(route), height=720)
-    st.dataframe(
-        map_points[["ordem", "clube", "cidade", "regiao"]],
-        width="stretch",
-        hide_index=True,
-    )
+    st.subheader("Mapa da rota recomendada")
+    st.pydeck_chart(route_map(route, rows), height=720)
 
 with tab_legs:
-    st.subheader("Sequência recomendada")
-    sequence_rows = pd.DataFrame(
-        {
-            "Ordem": range(1, len(route) + 1),
-            "Ponto": [place.name for place in route],
-            "Cidade": [place.city for place in route],
-            "Região": [place.region for place in route],
-        }
-    )
-    st.dataframe(sequence_rows, width="stretch", hide_index=True)
-    st.write(" → ".join(place.name for place in route))
+    st.subheader("Sequencia recomendada")
+    st.dataframe(sequence_rows(route), width="stretch", hide_index=True)
+    st.write(" -> ".join(point.name for point in route))
     st.download_button(
-        "Baixar rota em CSV",
+        "Baixar trechos em CSV",
         data=csv_bytes(rows),
-        file_name="footroute_rota_otimizada.csv",
+        file_name="footroute_recife_delivery.csv",
         mime="text/csv",
     )
     st.divider()
     st.subheader("Trechos calculados")
-    st.dataframe(rows, width="stretch", hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 with tab_model:
-    st.subheader("Formulação matemática")
-    st.write("Grafo ponderado de deslocamento:")
+    st.subheader("Modelo matematico")
+    st.write("Considere um grafo ponderado em que cada vertice representa o ponto de partida ou um pedido.")
     st.latex(r"G=(V,E)")
-    st.write("Peso da aresta entre dois pontos:")
-    st.latex(r"d_{ij}=\operatorname{dist}(i,j)")
-    st.write("Rota de visitação:")
-    st.latex(r"\pi=(\pi_0,\pi_1,\ldots,\pi_n)")
-    st.write("Função objetivo sem retorno obrigatório:")
+    st.write("A distancia urbana estimada combina distancia geodesica e fator de ajuste viario.")
+    st.latex(r"d_{ij}=f\cdot \operatorname{dist}_{geo}(i,j)")
+    st.write("O tempo e o custo de cada deslocamento sao estimados por:")
+    st.latex(r"t_{ij}=60\cdot\frac{d_{ij}}{v}+s_j")
+    st.latex(r"c_{ij}=d_{ij}\cdot c_{km}")
+    st.write("A funcao objetivo minimiza o deslocamento total da rota.")
     st.latex(r"\min Z=\sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}}")
-    st.write("Função objetivo com retorno à origem:")
+    st.write("Quando ha retorno ao ponto de partida, a rota e tratada como ciclo.")
+    st.latex(r"Z_{\mathrm{ciclo}}=\sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}}+d_{\pi_n,\pi_0}")
+    st.write("Uma formulacao operacional com tempo e custo pode ser expressa como:")
     st.latex(
-        r"Z_{\mathrm{ciclo}}=\sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}}+d_{\pi_n,\pi_0}"
+        r"\min Z=\sum_{i\in V}\sum_{j\in V,\,j\neq i}x_{ij}"
+        r"\left(\alpha d_{ij}+\beta t_{ij}+\gamma c_{ij}\right)"
     )
     st.write(
-        "O algoritmo exato utiliza programação dinâmica Held-Karp; a alternativa "
-        "heurística combina vizinho mais próximo e melhoria local 2-opt."
+        "A versao exata usa programacao dinamica Held-Karp. A alternativa heuristica usa "
+        "vizinho mais proximo seguido de melhoria local 2-opt. As distancias sao estimativas "
+        "baseadas em coordenadas e nao substituem dados reais de transito ou malha viaria."
     )
