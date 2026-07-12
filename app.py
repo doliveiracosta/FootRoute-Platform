@@ -178,6 +178,9 @@ def route_rows(
 def sequence_rows(route: list[DeliveryPoint]) -> list[dict[str, object]]:
     rows = []
     for idx, point in enumerate(route, start=1):
+        is_final_return = idx == len(route) and len(route) > 1 and point.id == route[0].id
+        if is_final_return:
+            continue
         rows.append(
             {
                 "Ordem": idx,
@@ -192,6 +195,9 @@ def sequence_rows(route: list[DeliveryPoint]) -> list[dict[str, object]]:
 def route_map_html(route: list[DeliveryPoint], rows: list[dict[str, object]]) -> str:
     points = []
     for idx, point in enumerate(route, start=1):
+        is_final_return = idx == len(route) and len(route) > 1 and point.id == route[0].id
+        if is_final_return:
+            continue
         points.append(
             {
                 "label": str(idx),
@@ -393,7 +399,8 @@ with tab_map:
 with tab_legs:
     st.subheader("Sequencia recomendada")
     st.markdown(markdown_table(sequence_rows(route)))
-    st.write(" -> ".join(point.name for point in route))
+    visible_route = route[:-1] if len(route) > 1 and route[-1].id == route[0].id else route
+    st.write(" -> ".join(point.name for point in visible_route))
     st.download_button(
         "Baixar trechos em CSV",
         data=csv_bytes(rows),
