@@ -1,0 +1,22 @@
+id,nome,bairro,tipo,latitude,longitude
+rest_bv,Restaurante Boa Viagem,Boa Viagem,Origem,-8.1265,-34.9006
+hub_marco_zero,Hub Marco Zero,Recife Antigo,Origem,-8.0632,-34.8711
+mercado_madalena,Mercado Madalena,Madalena,Origem,-8.0529,-34.9069
+pedido_pina,Pedido Pina,Pina,Entrega,-8.0924,-34.8837
+pedido_imibiribeira,Pedido Imbiribeira,Imbiribeira,Entrega,-8.1103,-34.9126
+pedido_afogados,Pedido Afogados,Afogados,Entrega,-8.0707,-34.9092
+pedido_derby,Pedido Derby,Derby,Entrega,-8.0583,-34.8966
+pedido_gracas,Pedido Gracas,Gracas,Entrega,-8.0435,-34.8943
+pedido_espinheiro,Pedido Espinheiro,Espinheiro,Entrega,-8.0366,-34.8919
+pedido_jaqueira,Pedido Jaqueira,Jaqueira,Entrega,-8.0371,-34.9042
+pedido_casa_forte,Pedido Casa Forte,Casa Forte,Entrega,-8.0361,-34.9217
+pedido_torre,Pedido Torre,Torre,Entrega,-8.0430,-34.9116
+pedido_cordeiro,Pedido Cordeiro,Cordeiro,Entrega,-8.0511,-34.9302
+pedido_iputinga,Pedido Iputinga,Iputinga,Entrega,-8.0426,-34.9362
+pedido_varzea,Pedido Varzea,Varzea,Entrega,-8.0476,-34.9606
+pedido_casa_amarela,Pedido Casa Amarela,Casa Amarela,Entrega,-8.0261,-34.9170
+pedido_encruzilhada,Pedido Encruzilhada,Encruzilhada,Entrega,-8.0278,-34.8925
+pedido_aflitos,Pedido Aflitos,Aflitos,Entrega,-8.0394,-34.8982
+pedido_boa_vista,Pedido Boa Vista,Boa Vista,Entrega,-8.0589,-34.8833
+pedido_santo_amaro,Pedido Santo Amaro,Santo Amaro,Entrega,-8.0487,-34.8793
+pedido_ibura,Pedido Ibura,Ibura,Entrega,-8.1143,-34.9478
