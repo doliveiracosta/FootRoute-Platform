@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import StringIO
 from math import asin, cos, radians, sin, sqrt
-from pathlib import Path
 import csv
 
 import pandas as pd
@@ -17,8 +16,6 @@ DEFAULT_AVG_SPEED_KMH = 22
 DEFAULT_COST_PER_KM = 1.15
 DEFAULT_STOP_MINUTES = 4
 EXACT_LIMIT = 12
-DATA_DIR = Path(__file__).resolve().parent / "data"
-NEIGHBORHOOD_SOURCE_URL = "https://pt.wikipedia.org/wiki/Lista_de_bairros_do_Recife"
 
 
 @dataclass(frozen=True)
@@ -54,21 +51,6 @@ POINTS = [
     DeliveryPoint("pedido_santo_amaro", "Pedido Santo Amaro", "Santo Amaro", "Entrega", -8.0487, -34.8793),
     DeliveryPoint("pedido_ibura", "Pedido Ibura", "Ibura", "Entrega", -8.1143, -34.9478),
 ]
-
-
-@st.cache_data
-def load_neighborhood_reference() -> pd.DataFrame:
-    path = DATA_DIR / "bairros_recife.csv"
-    if path.exists():
-        neighborhoods = pd.read_csv(path)
-    else:
-        neighborhoods = pd.DataFrame({"bairro": sorted({point.neighborhood for point in POINTS})})
-
-    mapped_neighborhoods = {point.neighborhood for point in POINTS}
-    neighborhoods["ponto_simulado"] = neighborhoods["bairro"].apply(
-        lambda value: "Sim" if value in mapped_neighborhoods else "Não"
-    )
-    return neighborhoods
 
 
 def haversine_km(a: DeliveryPoint, b: DeliveryPoint) -> float:
@@ -143,53 +125,6 @@ def held_karp(
     if return_to_start:
         route.append(start)
     return route, best_cost
-
-
-def nearest_neighbor(
-    start: DeliveryPoint,
-    destinations: list[DeliveryPoint],
-    return_to_start: bool,
-    urban_factor: float,
-) -> list[DeliveryPoint]:
-    unvisited = destinations[:]
-    route = [start]
-    current = start
-    while unvisited:
-        next_place = min(unvisited, key=lambda place: estimated_distance_km(current, place, urban_factor))
-        route.append(next_place)
-        unvisited.remove(next_place)
-        current = next_place
-    if return_to_start:
-        route.append(start)
-    return route
-
-
-def two_opt(route: list[DeliveryPoint], fixed_cycle: bool, urban_factor: float) -> list[DeliveryPoint]:
-    best = route[:]
-    improved = True
-    start_index = 1
-    end_limit = len(best) - 1 if fixed_cycle else len(best)
-
-    while improved:
-        improved = False
-        for i in range(start_index, end_limit - 1):
-            for k in range(i + 1, end_limit):
-                candidate = best[:i] + best[i : k + 1][::-1] + best[k + 1 :]
-                if route_distance(candidate, urban_factor) + 1e-9 < route_distance(best, urban_factor):
-                    best = candidate
-                    improved = True
-    return best
-
-
-def heuristic_route(
-    start: DeliveryPoint,
-    destinations: list[DeliveryPoint],
-    return_to_start: bool,
-    urban_factor: float,
-) -> tuple[list[DeliveryPoint], float]:
-    route = nearest_neighbor(start, destinations, return_to_start, urban_factor)
-    optimized = two_opt(route, fixed_cycle=return_to_start, urban_factor=urban_factor)
-    return optimized, route_distance(optimized, urban_factor)
 
 
 def route_rows(
@@ -366,11 +301,9 @@ def format_minutes(value: float) -> str:
 
 st.set_page_config(page_title="RotaRecife", layout="wide")
 
-neighborhood_reference = load_neighborhood_reference()
 points_by_name = {point.name: point for point in POINTS}
 origin_names = [point.name for point in POINTS if point.point_type == "Origem"]
 delivery_names = [point.name for point in POINTS if point.point_type == "Entrega"]
-neighborhood_names = neighborhood_reference["bairro"].dropna().astype(str).tolist()
 default_deliveries = [
     "Pedido Pina",
     "Pedido Derby",
@@ -386,53 +319,11 @@ st.caption("Roteirizacao urbana para apoiar entregadores de pedidos no Recife.")
 
 with st.sidebar:
     st.header("Configuracao")
-    start_mode = st.radio(
-        "Ponto de partida",
-        ["Ponto cadastrado", "Informar manualmente"],
-        index=0,
-    )
-    if start_mode == "Ponto cadastrado":
-        start_name = st.selectbox("Origem cadastrada", origin_names, index=0)
-        start = points_by_name[start_name]
-    else:
-        custom_start_name = st.text_input("Nome do ponto de partida", value="Minha origem")
-        custom_neighborhood = st.selectbox(
-            "Bairro do ponto de partida",
-            neighborhood_names,
-            index=neighborhood_names.index("Boa Viagem") if "Boa Viagem" in neighborhood_names else 0,
-        )
-        custom_lat = st.number_input(
-            "Latitude do ponto de partida",
-            min_value=-8.20,
-            max_value=-7.90,
-            value=RECIFE_CENTER[0],
-            step=0.0001,
-            format="%.6f",
-        )
-        custom_lon = st.number_input(
-            "Longitude do ponto de partida",
-            min_value=-35.05,
-            max_value=-34.80,
-            value=RECIFE_CENTER[1],
-            step=0.0001,
-            format="%.6f",
-        )
-        start = DeliveryPoint(
-            "origem_manual",
-            custom_start_name.strip() or "Minha origem",
-            custom_neighborhood,
-            "Origem",
-            float(custom_lat),
-            float(custom_lon),
-        )
-
+    start_name = st.selectbox("Ponto de partida", origin_names, index=0)
+    start = points_by_name[start_name]
     selected_names = st.multiselect("Pedidos a entregar", delivery_names, default=default_deliveries)
     return_to_start = st.checkbox("Retornar ao ponto de partida", value=True)
-    algorithm = st.radio(
-        "Algoritmo",
-        ["Exato (Held-Karp)", "Heuristico (vizinho mais proximo + 2-opt)"],
-        index=0,
-    )
+    st.caption("Algoritmo: Held-Karp exato.")
 
     st.divider()
     st.header("Parametros operacionais")
@@ -441,30 +332,16 @@ with st.sidebar:
     cost_per_km = st.slider("Custo operacional por km (R$)", 0.30, 4.00, DEFAULT_COST_PER_KM, 0.05)
     stop_minutes = st.slider("Tempo medio por entrega (min)", 0, 15, DEFAULT_STOP_MINUTES, 1)
 
-    st.divider()
-    st.header("Bairros")
-    mapped_count = int((neighborhood_reference["ponto_simulado"] == "Sim").sum())
-    st.caption(
-        f"{len(neighborhood_reference)} bairros na referencia; "
-        f"{mapped_count} com ponto simulado nesta versao."
-    )
-    with st.expander("Ver cobertura por bairro"):
-        st.dataframe(neighborhood_reference, width="stretch", hide_index=True)
-        st.markdown(f"[Fonte da lista de bairros]({NEIGHBORHOOD_SOURCE_URL})")
-
 destinations = [points_by_name[name] for name in selected_names]
 
-use_exact = algorithm.startswith("Exato") and len(destinations) <= EXACT_LIMIT
-if algorithm.startswith("Exato") and len(destinations) > EXACT_LIMIT:
-    st.warning(
-        f"O modo exato foi trocado pela heuristica porque ha {len(destinations)} pedidos. "
-        f"Use ate {EXACT_LIMIT} pedidos para Held-Karp."
+if len(destinations) > EXACT_LIMIT:
+    st.error(
+        f"O Held-Karp esta habilitado para ate {EXACT_LIMIT} pedidos nesta versao. "
+        f"Reduza a selecao para calcular a rota exata."
     )
+    st.stop()
 
-if use_exact:
-    route, optimized_distance = held_karp(start, destinations, return_to_start, urban_factor)
-else:
-    route, optimized_distance = heuristic_route(start, destinations, return_to_start, urban_factor)
+route, optimized_distance = held_karp(start, destinations, return_to_start, urban_factor)
 
 rows = route_rows(route, urban_factor, avg_speed_kmh, cost_per_km, stop_minutes)
 total_distance = sum(float(row["Distancia estimada (km)"]) for row in rows)
@@ -519,7 +396,7 @@ with tab_model:
         r"\left(\alpha d_{ij}+\beta t_{ij}+\gamma c_{ij}\right)"
     )
     st.write(
-        "A versao exata usa programacao dinamica Held-Karp. A alternativa heuristica usa "
-        "vizinho mais proximo seguido de melhoria local 2-opt. As distancias sao estimativas "
-        "baseadas em coordenadas e nao substituem dados reais de transito ou malha viaria."
+        "A versao atual usa programacao dinamica Held-Karp para calcular a rota exata. "
+        "As distancias sao estimativas baseadas em coordenadas e nao substituem dados reais "
+        "de transito ou malha viaria."
     )
