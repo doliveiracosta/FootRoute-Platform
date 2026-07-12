@@ -65,4 +65,4 @@ com:
 \sum_{i\in V,\,i\neq j}x_{ij}=1,\quad \forall j\in V
 ```
 
-A versao atual da plataforma usa Held-Karp para instancias pequenas e uma heuristica baseada em vizinho mais proximo e 2-opt para instancias maiores.
+A versao atual da plataforma usa programacao dinamica Held-Karp para calcular a rota exata nas instancias selecionadas.
