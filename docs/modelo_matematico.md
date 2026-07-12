@@ -1,40 +1,68 @@
-# Modelo matemático resumido
+# Modelo matematico
 
 Considere um grafo ponderado:
 
-$$
-G=(V,A)
-$$
+```math
+G=(V,E)
+```
 
-em que cada vértice representa uma equipe associada à sua cidade-sede ou à sua capital de referência, conforme a camada territorial selecionada pelo usuário.
+em que cada vertice representa o ponto de partida ou um pedido a ser entregue, e cada aresta representa um deslocamento urbano entre dois pontos.
 
-A variável de decisão é:
+A distancia urbana estimada e definida por:
 
-$$
-x_{ij}=\begin{cases}
-1, & \text{se o deslocamento de } i \text{ para } j \text{ for escolhido}\\
-0, & \text{caso contrário}
-\end{cases}
-$$
+```math
+d_{ij}=f\cdot \operatorname{dist}_{geo}(i,j)
+```
 
-A função objetivo minimiza a distância total percorrida:
+em que `f` e o fator de ajuste viario e `dist_geo(i,j)` e a distancia geodesica entre os pontos `i` e `j`.
 
-$$
-\min Z = \sum_{i \in V}\sum_{j \in V, j \neq i} d_{ij}x_{ij}
-$$
+O tempo estimado de deslocamento e atendimento e:
 
-Para rota fechada, cada vértice deve ter exatamente uma entrada e uma saída:
+```math
+t_{ij}=60\cdot\frac{d_{ij}}{v}+s_j
+```
 
-$$
-\sum_{j \in V, j \neq i}x_{ij}=1, \quad \forall i \in V
-$$
+em que `v` e a velocidade media urbana e `s_j` e o tempo medio de parada no destino `j`.
 
-$$
-\sum_{i \in V, i \neq j}x_{ij}=1, \quad \forall j \in V
-$$
+O custo operacional estimado e:
 
-Para evitar subciclos, pode-se usar uma restrição de ordenação do tipo MTZ:
+```math
+c_{ij}=d_{ij}\cdot c_{km}
+```
 
-$$
-u_i-u_j+|V|x_{ij}\leq |V|-1, \quad i \neq j,\ i,j \in V\setminus\{s\}
-$$
+Para uma rota:
+
+```math
+\pi=(\pi_0,\pi_1,\ldots,\pi_n)
+```
+
+a funcao objetivo basica e:
+
+```math
+\min Z=\sum_{k=0}^{n-1} d_{\pi_k,\pi_{k+1}}
+```
+
+Quando ha retorno ao ponto de partida, usa-se:
+
+```math
+Z_{\mathrm{ciclo}}=\sum_{k=0}^{n-1}d_{\pi_k,\pi_{k+1}}+d_{\pi_n,\pi_0}
+```
+
+Uma extensao multicriterio pode combinar distancia, tempo e custo:
+
+```math
+\min Z=\sum_{i\in V}\sum_{j\in V,\,j\neq i}x_{ij}
+\left(\alpha d_{ij}+\beta t_{ij}+\gamma c_{ij}\right)
+```
+
+com:
+
+```math
+\sum_{j\in V,\,j\neq i}x_{ij}=1,\quad \forall i\in V
+```
+
+```math
+\sum_{i\in V,\,i\neq j}x_{ij}=1,\quad \forall j\in V
+```
+
+A versao atual da plataforma usa Held-Karp para instancias pequenas e uma heuristica baseada em vizinho mais proximo e 2-opt para instancias maiores.
