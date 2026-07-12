@@ -31,6 +31,14 @@ Use:
 Main file path: app.py
 ```
 
+Em **Advanced settings**, selecione:
+
+```text
+Python version: 3.12
+```
+
+Essa configuracao evita instabilidades observadas com Python 3.14 no Streamlit Cloud.
+
 ## Execucao local
 
 ```bash
