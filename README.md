@@ -2,7 +2,7 @@
 
 Aplicacao em Streamlit para simular rotas de entregadores de pedidos no municipio do Recife.
 
-O painel permite selecionar um ponto de partida, escolher pedidos simulados, calcular uma rota recomendada e visualizar o grafo diretamente sobre o mapa.
+O painel permite selecionar um bairro de partida, escolher pedidos simulados, calcular uma rota recomendada e visualizar o grafo diretamente sobre o mapa.
 
 ## Escopo
 
@@ -13,7 +13,7 @@ O painel permite selecionar um ponto de partida, escolher pedidos simulados, cal
 
 ## Funcionalidades
 
-- Selecao do ponto de partida.
+- Selecao do bairro de partida.
 - Selecao dos pedidos a entregar.
 - Retorno opcional ao ponto de partida.
 - Algoritmo exato Held-Karp.

@@ -53,6 +53,21 @@ POINTS = [
 ]
 
 
+def build_start_points_by_neighborhood(points: list[DeliveryPoint]) -> dict[str, DeliveryPoint]:
+    start_points: dict[str, DeliveryPoint] = {}
+    for point in points:
+        if point.neighborhood not in start_points:
+            start_points[point.neighborhood] = DeliveryPoint(
+                f"partida_{point.neighborhood.lower().replace(' ', '_')}",
+                f"Partida - {point.neighborhood}",
+                point.neighborhood,
+                "Origem",
+                point.lat,
+                point.lon,
+            )
+    return dict(sorted(start_points.items()))
+
+
 def haversine_km(a: DeliveryPoint, b: DeliveryPoint) -> float:
     radius = 6371.0
     lat1, lon1 = radians(a.lat), radians(a.lon)
@@ -302,7 +317,8 @@ def format_minutes(value: float) -> str:
 st.set_page_config(page_title="RotaRecife", layout="wide")
 
 points_by_name = {point.name: point for point in POINTS}
-origin_names = [point.name for point in POINTS if point.point_type == "Origem"]
+start_points_by_neighborhood = build_start_points_by_neighborhood(POINTS)
+start_neighborhoods = list(start_points_by_neighborhood)
 delivery_names = [point.name for point in POINTS if point.point_type == "Entrega"]
 default_deliveries = [
     "Pedido Pina",
@@ -319,8 +335,9 @@ st.caption("Roteirizacao urbana para apoiar entregadores de pedidos no Recife.")
 
 with st.sidebar:
     st.header("Configuracao")
-    start_name = st.selectbox("Ponto de partida", origin_names, index=0)
-    start = points_by_name[start_name]
+    default_start_index = start_neighborhoods.index("Boa Viagem") if "Boa Viagem" in start_neighborhoods else 0
+    start_neighborhood = st.selectbox("Bairro de partida", start_neighborhoods, index=default_start_index)
+    start = start_points_by_neighborhood[start_neighborhood]
     selected_names = st.multiselect("Pedidos a entregar", delivery_names, default=default_deliveries)
     return_to_start = st.checkbox("Retornar ao ponto de partida", value=True)
     st.caption("Algoritmo: Held-Karp exato.")
