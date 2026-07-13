@@ -371,6 +371,12 @@ st.markdown(
         font-weight: 700;
         margin: 0.95rem 0 0.8rem 0;
       }
+      .app-subtitle {
+        color: #8b919e;
+        font-size: 0.92rem;
+        line-height: 1.45;
+        margin: -0.15rem 0 0.2rem 0;
+      }
       .profile-links {
         display: flex;
         flex-wrap: wrap;
@@ -428,10 +434,14 @@ default_deliveries = [
 ]
 
 st.title("RotaRecife")
-st.subheader("Roteirizacao urbana para apoiar entregadores de pedidos na Região Metropolitana do Recife")
-st.caption(
-    "Simulacao de rotas urbanas a partir de ponto de partida, pedidos selecionados "
-    "e otimizacao por Held-Karp."
+st.markdown(
+    """
+    <div class="app-subtitle">
+      Roteirizacao urbana para apoiar entregadores de pedidos na Região Metropolitana do Recife
+      com o Algoritmo Held-Karp.
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 st.markdown(
     f"""
