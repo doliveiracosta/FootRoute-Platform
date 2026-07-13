@@ -17,6 +17,11 @@ DEFAULT_AVG_SPEED_KMH = 22
 DEFAULT_COST_PER_KM = 1.15
 DEFAULT_STOP_MINUTES = 4
 EXACT_LIMIT = 12
+DISTANCE_COLUMN = "Distancia aprox. ajustada (km)"
+DEVELOPER_NAME = "David de Oliveira Costa"
+DEVELOPER_ROLE = "Doutorando em Engenharia de Computacao"
+ORCID_URL = "https://orcid.org/0000-0002-6138-7451"
+LINKEDIN_URL = "https://www.linkedin.com/in/daviddeoliveiracosta/"
 
 
 @dataclass(frozen=True)
@@ -165,7 +170,7 @@ def route_rows(
                 "Destino": destination.name,
                 "Bairro origem": origin.neighborhood,
                 "Bairro destino": destination.neighborhood,
-                "Distancia estimada (km)": round(distance, 2),
+                DISTANCE_COLUMN: round(distance, 2),
                 "Tempo deslocamento (min)": round(travel_minutes, 1),
                 "Tempo parada (min)": service_minutes,
                 "Tempo total (min)": round(total_minutes, 1),
@@ -193,18 +198,43 @@ def sequence_rows(route: list[DeliveryPoint]) -> list[dict[str, object]]:
 
 
 def route_map_html(route: list[DeliveryPoint], rows: list[dict[str, object]]) -> str:
-    points = []
+    visible_route = []
+    coordinate_counts: dict[tuple[float, float], int] = {}
     for idx, point in enumerate(route, start=1):
         is_final_return = idx == len(route) and len(route) > 1 and point.id == route[0].id
         if is_final_return:
             continue
+        key = (round(point.lat, 5), round(point.lon, 5))
+        coordinate_counts[key] = coordinate_counts.get(key, 0) + 1
+        visible_route.append((idx, point, key))
+
+    coordinate_seen: dict[tuple[float, float], int] = {}
+    duplicate_offsets = [
+        (-0.00055, -0.00055),
+        (0.00055, 0.00055),
+        (-0.00055, 0.00055),
+        (0.00055, -0.00055),
+        (0.00000, 0.00080),
+        (0.00000, -0.00080),
+    ]
+    points = []
+    for idx, point, key in visible_route:
+        display_lat = point.lat
+        display_lon = point.lon
+        if coordinate_counts[key] > 1:
+            duplicate_index = coordinate_seen.get(key, 0)
+            offset_lat, offset_lon = duplicate_offsets[duplicate_index % len(duplicate_offsets)]
+            display_lat += offset_lat
+            display_lon += offset_lon
+            coordinate_seen[key] = duplicate_index + 1
+
         points.append(
             {
                 "label": str(idx),
                 "name": point.name,
                 "neighborhood": point.neighborhood,
-                "lat": point.lat,
-                "lon": point.lon,
+                "lat": display_lat,
+                "lon": display_lon,
                 "kind": "origin" if idx == 1 else "delivery",
             }
         )
@@ -332,6 +362,57 @@ def format_minutes(value: float) -> str:
 
 st.set_page_config(page_title="RotaRecife", layout="wide")
 
+st.markdown(
+    """
+    <style>
+      .developer-line {
+        color: #111827;
+        font-size: 0.96rem;
+        font-weight: 700;
+        margin: 0.95rem 0 0.8rem 0;
+      }
+      .profile-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin: 0.1rem 0 1.3rem 0;
+      }
+      .profile-links a {
+        align-items: center;
+        color: #475569;
+        display: inline-flex;
+        font-size: 0.92rem;
+        gap: 0.42rem;
+        text-decoration: none;
+      }
+      .profile-links a:hover {
+        color: #111827;
+        text-decoration: underline;
+      }
+      .profile-badge {
+        align-items: center;
+        border-radius: 4px;
+        color: white;
+        display: inline-flex;
+        font-size: 0.72rem;
+        font-weight: 700;
+        height: 18px;
+        justify-content: center;
+        line-height: 1;
+        width: 18px;
+      }
+      .orcid-badge {
+        background: #a6ce39;
+        border-radius: 999px;
+      }
+      .linkedin-badge {
+        background: #0a66c2;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 points_by_name = {point.name: point for point in POINTS}
 start_points_by_neighborhood = build_start_points_by_neighborhood(POINTS)
 start_neighborhoods = list(start_points_by_neighborhood)
@@ -347,7 +428,27 @@ default_deliveries = [
 ]
 
 st.title("RotaRecife")
-st.caption("Roteirizacao urbana para apoiar entregadores de pedidos no Recife.")
+st.subheader("Roteirizacao urbana para apoiar entregadores de pedidos na Região Metropolitana do Recife")
+st.caption(
+    "Simulacao de rotas urbanas a partir de ponto de partida, pedidos selecionados "
+    "e otimizacao por Held-Karp."
+)
+st.markdown(
+    f"""
+    <div class="developer-line">
+      Desenvolvido por {DEVELOPER_NAME}, {DEVELOPER_ROLE}, 2026.
+    </div>
+    <div class="profile-links">
+      <a href="{ORCID_URL}" target="_blank" rel="noopener noreferrer">
+        <span class="profile-badge orcid-badge">iD</span> Perfil academico
+      </a>
+      <a href="{LINKEDIN_URL}" target="_blank" rel="noopener noreferrer">
+        <span class="profile-badge linkedin-badge">in</span> Perfil profissional
+      </a>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 with st.sidebar:
     st.header("Configuracao")
@@ -361,9 +462,12 @@ with st.sidebar:
     st.divider()
     st.header("Parametros operacionais")
     avg_speed_kmh = st.slider("Velocidade media urbana (km/h)", 8, 45, DEFAULT_AVG_SPEED_KMH, 1)
-    urban_factor = st.slider("Fator de ajuste viario", 1.00, 1.80, DEFAULT_URBAN_FACTOR, 0.02)
+    urban_factor = st.slider("Fator de aproximacao viaria", 1.00, 1.80, DEFAULT_URBAN_FACTOR, 0.02)
     cost_per_km = st.slider("Custo operacional por km (R$)", 0.30, 4.00, DEFAULT_COST_PER_KM, 0.05)
     stop_minutes = st.slider("Tempo medio por entrega (min)", 0, 15, DEFAULT_STOP_MINUTES, 1)
+    st.divider()
+    st.caption(f"Desenvolvido por {DEVELOPER_NAME}.")
+    st.markdown(f"[ORCID]({ORCID_URL}) | [LinkedIn]({LINKEDIN_URL})")
 
 destinations = [points_by_name[name] for name in selected_names]
 
@@ -377,23 +481,28 @@ if len(destinations) > EXACT_LIMIT:
 route, optimized_distance = held_karp(start, destinations, return_to_start, urban_factor)
 
 rows = route_rows(route, urban_factor, avg_speed_kmh, cost_per_km, stop_minutes)
-total_distance = sum(float(row["Distancia estimada (km)"]) for row in rows)
+total_distance = sum(float(row[DISTANCE_COLUMN]) for row in rows)
 total_travel_minutes = sum(float(row["Tempo deslocamento (min)"]) for row in rows)
 total_stop_minutes = sum(float(row["Tempo parada (min)"]) for row in rows)
 total_minutes = sum(float(row["Tempo total (min)"]) for row in rows)
 total_cost = sum(float(row["Custo estimado (R$)"]) for row in rows)
 
 metric_cols = st.columns(5)
-metric_cols[0].metric("Distancia total", format_km(total_distance))
-metric_cols[1].metric("Tempo total", format_minutes(total_minutes))
+metric_cols[0].metric("Distancia aprox.", format_km(total_distance))
+metric_cols[1].metric("Tempo estimado", format_minutes(total_minutes))
 metric_cols[2].metric("Custo estimado", format_money(total_cost))
 metric_cols[3].metric("Pedidos", len(destinations))
 metric_cols[4].metric("Trechos", len(rows))
+st.caption(
+    "Distancia, tempo e custo sao estimativas. O mapa exibe ligacoes retas entre pontos, "
+    "nao o percurso real pela malha viaria."
+)
 
 tab_map, tab_legs, tab_model = st.tabs(["Mapa", "Trechos", "Modelo"])
 
 with tab_map:
     st.subheader("Mapa da rota recomendada")
+    st.caption("Tracado esquematico da ordem de visita; nao representa o caminho real pelas ruas.")
     components.html(route_map_html(route, rows), height=720)
 
 with tab_legs:
@@ -415,7 +524,7 @@ with tab_model:
     st.subheader("Modelo matematico")
     st.write("Considere um grafo ponderado em que cada vertice representa o ponto de partida ou um pedido.")
     st.latex(r"G=(V,E)")
-    st.write("A distancia urbana estimada combina distancia geodesica e fator de ajuste viario.")
+    st.write("A distancia apresentada e uma aproximacao: combina distancia geodesica e fator de ajuste viario.")
     st.latex(r"d_{ij}=f\cdot \operatorname{dist}_{geo}(i,j)")
     st.write("O tempo e o custo de cada deslocamento sao estimados por:")
     st.latex(r"t_{ij}=60\cdot\frac{d_{ij}}{v}+s_j")
